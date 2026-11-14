@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>De MODIS a VIIRS · Calendario de actividad de quema · NASA Space Apps</title>
+<meta name="description" content="Página educativa: cómo armonizar MODIS y VIIRS (NASA FIRMS) para construir un calendario de actividad de quema en Perú (caso Cusco).">
+
+<!-- Fuentes opcionales con fallback del sistema -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+<!-- Tailwind por CDN (versión fija) -->
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+
+<style>
+/* ========== Variables ========== */
+:root{
+  --bg:#0b0d12; --bg2:#12151d; --panel:#161a24; --line:#2a3040;
+  --text:#ece9e4; --muted:#a6a9b5;
+  --amber:#fbbf24; --orange:#fb923c; --red:#f87171; --blue:#60a5fa;
+  --label:7.5rem;
+  --font-head:'Space Grotesk',ui-sans-serif,system-ui,'Segoe UI',sans-serif;
+  --font-body:'Inter',ui-sans-serif,system-ui,'Segoe UI',sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:4.5rem}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-body);line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--font-head);line-height:1.15;margin:0}
+p{margin:0}
+.wrap{max-width:72rem;margin:0 auto;padding:0 1rem}
+:focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:absolute;left:.5rem;top:-4rem;background:var(--amber);color:#1a1100;padding:.5rem 1rem;border-radius:.5rem;z-index:100;font-weight:600}
+.skip:focus{top:.5rem}
+button{font:inherit;color:inherit;cursor:pointer}
+
+/* ========== Nav ========== */
+.nav{position:sticky;top:0;z-index:50;background:rgba(11,13,18,.88);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:3.5rem;gap:1rem}
+.brand{font-family:var(--font-head);font-weight:700;color:var(--amber);white-space:nowrap}
+.nav ul{display:flex;gap:.25rem;list-style:none;margin:0;padding:0}
+.nav a{display:block;padding:.4rem .8rem;border-radius:999px;color:var(--muted);text-decoration:none;font-weight:500;font-size:.95rem}
+.nav a:hover{color:var(--text)}
+.nav a[aria-current="true"]{background:rgba(251,191,36,.15);color:var(--amber)}
+
+/* ========== Secciones ========== */
+section.block{padding:3.5rem 0}
+.eyebrow{color:var(--orange);font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.block h1,.block h2{font-size:clamp(1.6rem,4vw,2.4rem);margin:.4rem 0 .75rem}
+.block .sub{color:var(--muted);max-width:46rem}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:1rem;padding:1rem 1.1rem}
+.h3{font-family:var(--font-head);font-size:1.15rem;margin-bottom:.6rem}
+
+/* ========== Controles ========== */
+.controls{display:grid;gap:1rem;margin:1.75rem 0 1rem}
+.ctl-label{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:.4rem}
+.chip{border:1px solid var(--line);background:var(--bg2);padding:.4rem .85rem;border-radius:999px;font-size:.9rem;transition:background .2s,border-color .2s}
+.chip:hover{border-color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--amber);border-color:var(--amber);color:#1a1100;font-weight:600}
+.chip.zone[aria-pressed="true"]{background:var(--zc);border-color:var(--zc)}
+.btn{border:1px solid var(--line);background:var(--bg2);padding:.55rem 1rem;border-radius:.6rem;font-weight:500}
+.btn:hover{border-color:var(--amber)}
+.btn.primary{background:linear-gradient(90deg,var(--amber),var(--orange));color:#1a0f00;border:0;font-weight:600}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+
+/* ========== Línea de tiempo ========== */
+.chart-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:1rem;background:var(--bg2)}
+.chart{position:relative;min-width:880px;isolation:isolate}
+.row{display:grid;grid-template-columns:var(--label) 1fr;align-items:stretch;min-height:44px}
+.lbl{position:sticky;left:0;z-index:6;background:var(--bg2);border-right:1px solid var(--line);padding:.35rem .6rem;display:flex;flex-direction:column;justify-content:center;line-height:1.2}
+.lbl b{font-size:.92rem}.lbl small{color:var(--muted);font-size:.72rem}
+.track{position:relative}
+.axis{min-height:30px;border-bottom:1px solid var(--line)}
+.axis .track span{position:absolute;top:6px;transform:translateX(-50%);font-size:.72rem;color:var(--muted)}
+.axis .track span:first-child{transform:none}
+.grp{display:grid;grid-template-columns:var(--label) 1fr;background:rgba(255,255,255,.03);border-top:1px solid var(--line)}
+.grp span{position:sticky;left:0;z-index:6;padding:.25rem .6rem;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:600;grid-column:1/-1;width:max-content}
+.grp.modis span{color:var(--orange)}.grp.viirs span{color:var(--blue)}.grp.zones span{color:var(--muted)}
+.under,.over{position:absolute;top:0;bottom:0;left:var(--label);right:0;pointer-events:none}
+.under{z-index:0}.over{z-index:5}
+.gl{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.05)}
+.gl.major{background:rgba(255,255,255,.12)}
+.tint{position:absolute;top:0;bottom:0;background:var(--zc);opacity:0;transition:opacity .35s}
+.tint.on{opacity:.13}
+.row.dim .track,.row.dim .lbl b{opacity:.25}
+.row .track,.row .lbl b{transition:opacity .3s}
+
+.bar{position:absolute;top:7px;bottom:7px;border:0;border-radius:.45rem;padding:0 .6rem;text-align:left;font-size:.8rem;font-weight:600;color:#1a0f00;
+  overflow:hidden;white-space:nowrap;z-index:2;transform-origin:left center;transform:scaleX(0);transition:transform .9s cubic-bezier(.2,.8,.2,1) calc(var(--i)*110ms),box-shadow .2s,filter .2s}
+.chart.drawn .bar{transform:scaleX(1)}
+.bar.modis{background:linear-gradient(90deg,var(--amber),var(--orange) 60%,var(--red))}
+.bar.viirs{background:linear-gradient(90deg,#93c5fd,var(--blue))}
+.bar:hover,.bar.sel{box-shadow:0 0 0 2px #fff,0 0 18px rgba(251,191,36,.45);filter:brightness(1.08)}
+.bar.pending{border:2px dashed rgba(26,15,0,.7)}
+.mk{position:absolute;top:50%;z-index:3;pointer-events:none;transform:translate(-50%,-50%)}
+.mk.launch{width:11px;height:11px;background:#fff;transform:translate(-50%,-50%) rotate(45deg);border:2px solid #fff}
+.mk.start{width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #0b0d12}
+.mk.unv{background:transparent;border:2px dashed #fff}
+.mk.end{width:22px;height:22px;border-radius:50%;background:var(--red);color:#fff;font-weight:700;font-size:.8rem;display:grid;place-items:center;border:2px solid #fff;animation:pulse 2s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(248,113,113,.7)}100%{box-shadow:0 0 0 12px rgba(248,113,113,0)}}
+.mk-note{position:absolute;top:50%;z-index:3;transform:translate(calc(-100% - 16px),-50%);font-size:.7rem;font-weight:600;background:var(--bg);color:var(--red);padding:0 .35rem;border-radius:.3rem;white-space:nowrap;pointer-events:none}
+.lane-bar{position:absolute;top:9px;bottom:9px;border-radius:.4rem;background:var(--zc);color:#10131a;font-size:.72rem;font-weight:600;padding:0 .5rem;display:flex;align-items:center;overflow:hidden;white-space:nowrap;
+  opacity:0;transform:scaleX(.6);transform-origin:left;transition:opacity .35s,transform .45s,left .15s,width .15s}
+.lane-bar.on{opacity:1;transform:scaleX(1)}
+.lane-lbl{font-size:.72rem}
+.cursor{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 12px #fff;opacity:0;transition:left .8s cubic-bezier(.2,.8,.2,1),opacity .3s}
+.cursor.on{opacity:1}
+.cursor span{position:absolute;top:2px;left:6px;background:#fff;color:#111;font-size:.7rem;font-weight:700;padding:0 .35rem;border-radius:.3rem}
+
+.legend{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;margin-top:.8rem;font-size:.82rem;color:var(--muted);align-items:center}
+.legend i{display:inline-block;vertical-align:middle;margin-right:.35rem}
+.lg-launch{width:9px;height:9px;background:#fff;transform:rotate(45deg)}
+.lg-start{width:11px;height:11px;border-radius:50%;background:#fff}
+.lg-end{width:14px;height:14px;border-radius:50%;background:var(--red);color:#fff;font:700 9px/14px var(--font-body);text-align:center}
+.lg-unv{width:11px;height:11px;border:2px dashed #fff;border-radius:50%}
+
+.tag{display:inline-block;border:1px dashed var(--amber);color:#fcd34d;background:rgba(251,191,36,.1);border-radius:.4rem;padding:0 .4rem;font-size:.72rem;font-weight:600;vertical-align:middle;margin-left:.3rem;white-space:nowrap}
+.tag.ok{border:1px solid #4ade80;color:#86efac;background:rgba(74,222,128,.1)}
+.rolechip{display:inline-block;background:rgba(96,165,250,.15);color:#bfdbfe;border:1px solid rgba(96,165,250,.4);border-radius:999px;padding:0 .6rem;font-size:.8rem;margin:0 .3rem .3rem 0}
+
+/* Panel detalle */
+.detail dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:.9rem 1.2rem;margin:.8rem 0 0}
+.detail dt{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.detail dd{margin:0}
+.detail ul{margin:.6rem 0 0;padding-left:1.1rem;color:#d6d3cd;font-size:.92rem}
+
+/* Slider doble */
+.dual{position:relative;height:36px;margin:.2rem 0 0}
+.dual-track{position:absolute;left:0;right:0;top:16px;height:4px;border-radius:4px;background:var(--line)}
+.dual-fill{position:absolute;top:0;bottom:0;border-radius:4px;background:var(--zc)}
+.dual input[type=range]{position:absolute;left:0;top:0;width:100%;height:36px;margin:0;background:transparent;pointer-events:none;-webkit-appearance:none;appearance:none}
+.dual input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--zc);cursor:grab}
+.dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:16px;height:16px;border-radius:50%;background:#fff;border:3px solid var(--zc);cursor:grab}
+.dual input[type=range]::-webkit-slider-runnable-track{background:transparent}
+.dual input[type=range]::-moz-range-track{background:transparent}
+.dual-ticks{display:flex;justify-content:space-between;font-size:.72rem;color:var(--muted);padding:0 4px}
+
+/* Narrado */
+.narr{border-color:rgba(251,191,36,.5)}
+.narr h3{color:var(--amber)}
+
+/* Resolución */
+.res-grid{display:grid;gap:1rem;grid-template-columns:1fr}
+@media(min-width:700px){.res-grid{grid-template-columns:1fr 1fr}}
+.res-grid svg{width:100%;height:auto;display:block;background:#0e1118;border-radius:.6rem;border:1px solid var(--line)}
+.res-grid .cell{fill:none;stroke:rgba(255,255,255,.14);stroke-width:.015}
+.res-grid .cell.hit.m{fill:rgba(251,146,60,.75)}
+.res-grid .cell.hit.v{fill:rgba(96,165,250,.8)}
+.res-grid .cell{transition:fill .25s}
+.fire{fill:rgba(248,113,113,.35);stroke:var(--red);stroke-width:.06}
+.big{font-family:var(--font-head);font-size:2rem;font-weight:700}
+input[type=range].plain{width:100%;accent-color:var(--orange);height:28px}
+
+/* ========== Fase 2 ========== */
+.sticky-progress{position:sticky;top:3.5rem;z-index:40;background:rgba(18,21,29,.94);backdrop-filter:blur(6px);padding:.7rem 0;margin-top:1rem;border-bottom:1px solid var(--line)}
+.pbar{flex:1;min-width:10rem;height:12px;background:var(--line);border-radius:999px;overflow:hidden}
+#pfill{height:100%;width:0;background:linear-gradient(90deg,var(--amber),var(--orange),var(--red));transition:width .5s ease}
+
+/* Diagrama de flujo */
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:.5rem}
+.fnode{flex:1;min-width:9rem;text-align:left;border:1px solid var(--line);background:var(--bg2);border-radius:.8rem;padding:.7rem .9rem;animation:flowGlow 8s ease-in-out infinite;animation-delay:calc(var(--i)*2s)}
+.fnode b{display:block;font-family:var(--font-head);color:var(--amber)}
+.fnode small{color:var(--muted)}
+.fnode:hover{border-color:var(--amber)}
+.farrow{align-self:center;color:var(--orange);font-size:1.4rem;animation:arrowMove 2s ease-in-out infinite}
+@keyframes flowGlow{0%,28%,100%{box-shadow:none;border-color:var(--line)}8%,20%{box-shadow:0 0 18px rgba(251,146,60,.55);border-color:var(--orange)}}
+@keyframes arrowMove{50%{transform:translateX(6px)}}
+@media(max-width:640px){.farrow{transform:rotate(90deg);width:100%;text-align:center;animation:none}}
+
+/* Hoja de ruta */
+.roadmap{list-style:none;margin:0;padding:0 0 0 1.6rem;position:relative}
+.roadmap::before{content:"";position:absolute;left:1.05rem;top:.5rem;bottom:.5rem;width:3px;background:linear-gradient(var(--amber),var(--orange),var(--red));border-radius:3px;opacity:.6}
+.step{position:relative;margin-bottom:.9rem;transition:opacity .3s}
+.step.dim{opacity:.35}
+.step.hl > .step-card{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
+.step.flash > .step-card{animation:flash 1.2s ease}
+@keyframes flash{0%{box-shadow:0 0 0 4px var(--orange)}100%{box-shadow:0 0 0 0 transparent}}
+.dot{position:absolute;left:-1.6rem;top:.75rem;width:2.2rem;height:2.2rem;border-radius:50%;display:grid;place-items:center;font:700 .95rem var(--font-head);background:var(--bg);border:3px solid var(--orange);color:var(--amber);z-index:1}
+.step.done .dot{background:var(--amber);color:#1a0f00;border-color:var(--amber)}
+.step-card{background:var(--panel);border:1px solid var(--line);border-radius:1rem;margin-left:1.2rem;transition:border-color .2s}
+.step-head{width:100%;text-align:left;background:none;border:0;padding:.9rem 1rem;display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.h3t{font:600 1.05rem var(--font-head);flex:1;min-width:12rem}
+.chev{transition:transform .3s}
+.step.open .chev{transform:rotate(180deg)}
+.badge{font-size:.75rem;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 .55rem}
+.panel{display:grid;grid-template-rows:0fr;transition:grid-template-rows .4s ease}
+.step.open .panel{grid-template-rows:1fr}
+.panel > div{overflow:hidden;min-height:0}
+.step-body{padding:0 1rem 1rem;display:grid;gap:.9rem}
+.cols{display:grid;gap:.9rem;grid-template-columns:1fr}
+@media(min-width:700px){.cols{grid-template-columns:1fr 1fr}}
+.mini{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.2rem}
+.step-body ul.plain{margin:0;padding-left:1.1rem}
+.check{display:flex;gap:.6rem;align-items:flex-start;padding:.3rem 0}
+.check input{width:1.2rem;height:1.2rem;margin-top:.2rem;accent-color:var(--amber);flex:none}
+.check label{cursor:pointer}
+.check input:checked + label{color:var(--muted);text-decoration:line-through}
+.errbox{border-left:4px solid var(--red);background:rgba(248,113,113,.1);padding:.6rem .8rem;border-radius:0 .6rem .6rem 0}
+details.code{border:1px solid var(--line);border-radius:.7rem;background:#0e1118}
+details.code summary{cursor:pointer;padding:.6rem .8rem;font-weight:500}
+.codewrap{position:relative;padding:0 .8rem .8rem}
+.codewrap pre{margin:0;overflow-x:auto;font-size:.82rem;line-height:1.5;padding:.8rem;background:#090b10;border-radius:.5rem;color:#e6edf3}
+.codewrap .copy{position:absolute;right:1.2rem;top:.4rem;padding:.25rem .7rem;font-size:.8rem;z-index:2}
+
+/* Términos y glosario */
+.term{border-bottom:1px dotted var(--amber);cursor:help;color:#fde68a}
+#tip{position:fixed;z-index:200;max-width:18rem;background:#fff;color:#111;padding:.5rem .7rem;border-radius:.5rem;font-size:.85rem;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+.gloss-btn{position:fixed;right:1rem;bottom:1rem;z-index:80;background:linear-gradient(90deg,var(--amber),var(--orange));color:#1a0f00;border:0;border-radius:999px;padding:.6rem 1rem;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.5)}
+.gloss-panel{position:fixed;right:1rem;bottom:4rem;z-index:90;width:min(22rem,calc(100vw - 2rem));max-height:65vh;overflow:auto;background:var(--panel);border:1px solid var(--amber);border-radius:1rem;padding:1rem;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+.gloss-panel dt{color:var(--amber);font-weight:600;margin-top:.8rem}
+.gloss-panel dd{margin:.1rem 0 0;font-size:.9rem;color:#d6d3cd}
+
+/* Árbol de decisión */
+.path{list-style:none;display:flex;flex-wrap:wrap;gap:.4rem;padding:0;margin:.6rem 0}
+.path li{font-size:.8rem;border:1px solid var(--line);border-radius:999px;padding:0 .7rem;color:var(--muted)}
+.node{border:1px solid var(--line);border-radius:.8rem;padding:1rem;background:var(--bg2);animation:fadeIn .4s ease}
+.node.result{border-color:#4ade80;background:rgba(74,222,128,.08)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+footer{border-top:1px solid var(--line);padding:2rem 0;color:var(--muted);font-size:.88rem}
+
+/* ========== Pulido ========== */
+details.more{margin-top:.6rem;border-left:3px solid var(--line);padding-left:.8rem}
+details.more summary{cursor:pointer;color:var(--amber);font-weight:500;font-size:.92rem;padding:.2rem 0}
+details.more summary:hover{text-decoration:underline}
+details.more[open]{border-left-color:var(--amber)}
+details.more p{margin-top:.4rem;color:#d6d3cd;max-width:46rem}
+.goal{font-size:1.02rem}
+.meta{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.reveal{transition:opacity .6s ease,transform .6s ease}
+.reveal:not(.in){opacity:0;transform:translateY(20px)}
+section.block + section.block{border-top:1px solid var(--line);position:relative}
+section.block + section.block::before{content:"";position:absolute;left:0;right:0;top:-1px;height:2px;background:linear-gradient(90deg,transparent,var(--orange),var(--red),transparent);opacity:.7}
+#timeline{padding-top:2.5rem}
+@media(pointer:coarse){.chip,.btn,.step-head{min-height:44px}}
+@media(forced-colors:active){.bar,.chip[aria-pressed="true"]{border:2px solid ButtonText}}
+
+/* ========== Móvil ========== */
+@media(max-width:640px){
+  :root{--label:5.6rem}
+  .nav .brand{display:none}
+  .lbl b{font-size:.82rem}
+}
+
+/* ========== Movimiento reducido ========== */
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation:none!important;transition-duration:.01ms!important;transition-delay:0s!important}
+  .bar{transform:scaleX(1)}
+}
+</style>
+</head>
+
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+
+<nav class="nav" aria-label="Navegación principal">
+  <div class="wrap">
+    <span class="brand">🔥 MODIS → VIIRS</span>
+    <ul>
+      <li><a href="#timeline" data-nav="timeline">Línea de tiempo</a></li>
+      <li><a href="#steps" data-nav="steps">Paso a paso</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main id="main" tabindex="-1">
+<!-- ===================== SECCIÓN 1 ===================== -->
+<section id="timeline" class="block" aria-labelledby="t-title">
+  <div class="wrap">
+    <p class="eyebrow">NASA Space Apps · Perú / Cusco</p>
+    <h1 id="t-title">De MODIS a VIIRS: línea de tiempo</h1>
+    <p class="sub">Toca una barra para ver su ficha.</p>
+    <details class="more">
+      <summary>¿Cuál es el reto?</summary>
+      <p>NASA FIRMS publica puntos calientes desde 2000 con <b>MODIS</b> (1&nbsp;km) y desde 2012 con <b>VIIRS</b> (375&nbsp;m). Como tienen distinta resolución, sensibilidad y hora de paso, <b>no se pueden comparar directamente</b>. Hay que armonizarlos para obtener una serie única y construir el calendario de actividad de quema de Perú (caso de estudio: Cusco). Las fechas con <span class="tag">por verificar en FIRMS</span> aún no están confirmadas.</p>
+    </details>
+
+    <div class="controls">
+      <div>
+        <p class="ctl-label" id="lbl-roles">Filtrar por papel en el proyecto</p>
+        <div id="roleFilters" class="flex flex-wrap gap-2" role="group" aria-labelledby="lbl-roles"></div>
+      </div>
+      <div>
+        <p class="ctl-label" id="lbl-zones">Zonas sombreadas</p>
+        <div id="zoneToggles" class="flex flex-wrap gap-2" role="group" aria-labelledby="lbl-zones"></div>
+        <p id="zoneInfo" class="sub" style="margin-top:.6rem;font-size:.9rem" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <div class="chart-scroll" tabindex="0" aria-label="Línea de tiempo 2000-2027, desplazable horizontalmente">
+      <div id="chart" class="chart"></div>
+    </div>
+    <div class="legend" aria-hidden="false">
+      <span><i class="lg-launch"></i>Lanzamiento</span>
+      <span><i class="lg-start"></i>Inicio en FIRMS</span>
+      <span><i class="lg-end">✕</i>Fin de datos nuevos</span>
+      <span><i class="lg-unv"></i>Marcador hueco = por verificar</span>
+      <span>Barra con borde punteado = inicio provisional (TODO)</span>
+    </div>
+
+    <div id="detail" class="card detail" style="margin-top:1rem" aria-live="polite"></div>
+
+    <!-- Slider de rango -->
+    <div class="card" style="margin-top:1rem" id="rangeCard">
+      <h3 class="h3">Ajustar ventanas (rangos editables)</h3>
+      <div id="winPicker" class="flex flex-wrap gap-2" role="group" aria-label="Ventana a ajustar"></div>
+      <p id="rangeText" class="big" style="margin-top:.8rem" aria-live="polite"></p>
+      <div class="dual" id="dual">
+        <div class="dual-track"><div class="dual-fill" id="dualFill"></div></div>
+        <input type="range" id="rStart" step="1" aria-label="Año de inicio de la ventana">
+        <input type="range" id="rEnd" step="1" aria-label="Año de fin de la ventana">
+      </div>
+      <div class="dual-ticks" id="dualTicks" aria-hidden="true"></div>
+      <details class="more"><summary>Más info</summary><p class="sub" style="font-size:.85rem">Los valores iniciales salen de <code>CONFIG.zones</code>. Calibración y validación son ejemplos; el solapamiento Aqua–S-NPP está por confirmar.</p></details>
+    </div>
+
+    <!-- Narrado -->
+    <div class="card narr" style="margin-top:1rem" id="narrCard">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h3 class="h3" style="margin:0">Modo narrado</h3>
+        <button id="narrStart" class="btn primary" type="button" aria-label="Iniciar recorrido narrado de la historia">▶ Iniciar recorrido</button>
+      </div>
+      <div id="narrBody" hidden style="margin-top:.8rem">
+        <p class="ctl-label" id="narrCount"></p>
+        <h3 id="narrTitle" class="h3"></h3>
+        <p id="narrText" aria-live="polite"></p>
+        <div class="flex flex-wrap gap-2" style="margin-top:1rem">
+          <button id="narrPrev" class="btn" type="button" aria-label="Paso anterior">← Anterior</button>
+          <button id="narrNext" class="btn primary" type="button" aria-label="Paso siguiente">Siguiente →</button>
+          <button id="narrExit" class="btn" type="button" aria-label="Salir del modo narrado">Salir</button>
+          <span class="sub" style="align-self:center;font-size:.8rem">Atajo: ← →</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resolución -->
+    <div style="margin-top:3rem">
+      <p class="eyebrow">¿Por qué VIIRS detecta más?</p>
+      <h3 class="h3" style="font-size:1.6rem">1 km frente a 375 m</h3>
+      <p class="sub">Mueve el slider: ¿cuántos píxeles «ven» el mismo incendio? <span class="tag">Ilustrativo</span></p>
+      <div class="card" style="margin-top:1rem">
+        <label for="fireSize" class="ctl-label" style="display:block">Tamaño del incendio: <b id="fireSizeVal" style="color:var(--amber)"></b></label>
+        <input id="fireSize" class="plain" type="range" aria-label="Tamaño del incendio en el ejemplo">
+        <div class="res-grid" style="margin-top:.8rem">
+          <figure style="margin:0">
+            <svg id="svgModis" viewBox="0 0 12 12" role="img" aria-label="Cuadrícula de píxeles de 1 km con el incendio"></svg>
+            <figcaption style="margin-top:.5rem"><b style="color:var(--orange)">MODIS · píxel de 1 km</b><br><span class="big" id="cntModis">0</span> <span class="sub">píxeles con detección</span></figcaption>
+          </figure>
+          <figure style="margin:0">
+            <svg id="svgViirs" viewBox="0 0 12 12" role="img" aria-label="Cuadrícula de píxeles de 375 metros con el incendio"></svg>
+            <figcaption style="margin-top:.5rem"><b style="color:var(--blue)">VIIRS · píxel de 375 m</b><br><span class="big" id="cntViirs">0</span> <span class="sub">píxeles con detección</span></figcaption>
+          </figure>
+        </div>
+        <p id="resMsg" style="margin-top:.8rem" aria-live="polite"></p>
+      </div>
+    </div>
+
+    
+  </div>
+</section>
+
+<!-- ===================== SECCIÓN 2 (placeholder) ===================== -->
+<section id="steps" class="block" aria-labelledby="s-title" style="background:var(--bg2)">
+  <div class="wrap">
+    <p class="eyebrow">Sección 2</p>
+    <h2 id="s-title">Paso a paso</h2>
+    <p class="sub">Del dato crudo al calendario. Marca tareas para ver tu avance (no se guarda).</p>
+
+    <div class="sticky-progress">
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="pbar" id="pbar" role="progressbar" aria-label="Avance global del equipo" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="pfill"></div></div>
+        <b id="ptext" style="white-space:nowrap">0 %</b>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div>
+        <p class="ctl-label" id="lbl-teamroles">Selector de rol: resalta tus pasos</p>
+        <div id="teamRoles" class="flex flex-wrap gap-2" role="group" aria-labelledby="lbl-teamroles"></div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button type="button" class="btn" id="expandAll" aria-label="Expandir todos los pasos">Expandir todo</button>
+        <button type="button" class="btn" id="collapseAll" aria-label="Contraer todos los pasos">Contraer todo</button>
+      </div>
+    </div>
+
+    <!-- Diagrama de flujo -->
+    <div class="card" style="margin-bottom:2rem">
+      <h3 class="h3">El ciclo del método</h3>
+      <p class="sub" style="font-size:.9rem;margin-bottom:.8rem">Toca una etapa para abrir los pasos que le corresponden.</p>
+      <div id="flow" class="flow" role="list"></div>
+    </div>
+
+    <ol id="roadmap" class="roadmap"></ol>
+
+    <!-- Demo GLM -->
+    <div class="card" style="margin-top:3rem" id="glmDemo">
+      <p class="eyebrow">Demo interactiva</p>
+      <h3 class="h3" style="font-size:1.4rem">¿Qué hace el factor? Aqua × factor frente a VIIRS</h3>
+      <p class="sub" style="font-size:.92rem">Mueve el factor hasta que Aqua × factor alcance a VIIRS. <span class="tag">Datos ilustrativos</span></p>
+      <label for="factor" class="ctl-label" style="display:block;margin-top:1rem">Factor: <b id="factorVal" style="color:var(--amber)"></b></label>
+      <input id="factor" class="plain" type="range" aria-label="Factor multiplicador aplicado a Aqua">
+      <svg id="glmSvg" viewBox="0 0 600 230" role="img" aria-label="Gráfico ilustrativo semanal: VIIRS, Aqua y Aqua por factor" style="width:100%;height:auto;background:#0e1118;border:1px solid var(--line);border-radius:.6rem;margin-top:.6rem"></svg>
+      <div class="legend">
+        <span><b style="color:var(--blue)">━</b> VIIRS (ilustrativo)</span>
+        <span><b style="color:var(--muted)">┅</b> Aqua original</span>
+        <span><b style="color:var(--amber)">━</b> Aqua × factor</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-4" style="margin-top:.8rem">
+        <p>Error total: <span class="big" id="glmErr">0 %</span></p>
+        <p id="glmMsg" aria-live="polite"></p>
+        <button type="button" class="btn" id="glmBest" aria-label="Poner el factor en el valor que minimiza el error total">Ir al factor óptimo</button>
+      </div>
+      <details class="more"><summary>¿Cómo se calcula el error?</summary><p class="sub" style="font-size:.85rem">Error total = (suma de Aqua × factor − suma de VIIRS) ÷ suma de VIIRS. Un factor único cuadra el total, pero no la forma semanal: por eso se prueban modelos por temporada y zona.</p></details>
+    </div>
+
+    <!-- Árbol Terra -->
+    <div class="card" style="margin-top:1.5rem" id="terraCard">
+      <p class="eyebrow">Reglas de decisión</p>
+      <h3 class="h3" style="font-size:1.4rem">¿Qué hacemos con Terra?</h3>
+      <ol id="terraPath" class="path" aria-label="Recorrido de decisiones"></ol>
+      <div id="terraNode" class="node" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- Glosario flotante -->
+<button type="button" id="glossBtn" class="gloss-btn" aria-expanded="false" aria-haspopup="dialog" aria-controls="glossPanel" aria-label="Abrir glosario">📖 Glosario</button>
+<aside id="glossPanel" class="gloss-panel" role="dialog" aria-label="Glosario" hidden>
+  <div class="flex items-center justify-between"><h3 class="h3" style="margin:0">Glosario</h3>
+    <button type="button" class="btn" id="glossClose" aria-label="Cerrar glosario">✕</button></div>
+  <dl id="glossList"></dl>
+</aside>
+<div id="tip" role="tooltip" hidden></div>
+
+<footer>
+  <div class="wrap">
+    <p>Datos de actividad de fuego: <a href="https://firms.modaps.eosdis.nasa.gov/" style="color:var(--amber)">NASA FIRMS</a>. Página explicativa interna del equipo (NASA Space Apps). Todo lo marcado <span class="tag">por verificar en FIRMS</span> o <b>TODO</b> debe confirmarse antes de presentar.</p>
+  </div>
+</footer>
+
+<script>
+/* =====================================================================
+   DATOS EDITABLES — el equipo puede cambiar todo lo de este bloque
+   sin tocar la lógica de render (más abajo).
+   Convención de fechas: 'AAAA-MM' o 'AAAA-MM-DD'.
+   - verified:false  → se muestra la etiqueta "por verificar en FIRMS".
+   - placeholder:true → TODO: la fecha es solo una posición provisional
+                        en la gráfica; confirmar y quitar el flag.
+   ===================================================================== */
+
+const CONFIG = {
+  yearStart: 2000,
+  yearEnd: 2027,            // eje 2000–2027
+  today: '2026-11-14',      // fin de las barras de satélites activos
+  // Zonas sombreadas. start/end son AÑOS (end inclusivo). Editables con el slider.
+  zones: {
+    modisOnly:   { label: 'Solo MODIS',   color: '#fbbf24', start: 2002, end: 2011, editable: false, verified: true,
+                   desc: 'Solo MODIS → se estima el equivalente VIIRS (Aqua × factor)' },
+    viirsReal:   { label: 'VIIRS real',   color: '#60a5fa', start: 2012, end: 2026, editable: false, verified: true,
+                   desc: 'VIIRS real: datos observados, sin estimar' },
+    calibration: { label: 'Calibración',  color: '#fb923c', start: 2012, end: 2017, editable: true,  verified: false,
+                   desc: 'Ventana de calibración (ejemplo): aquí se ajusta el GLM' },
+    validation:  { label: 'Validación',   color: '#4ade80', start: 2018, end: 2022, editable: true,  verified: false,
+                   desc: 'Ventana de validación (ejemplo): años retenidos para probar el factor' },
+    overlap:     { label: 'Solapamiento Aqua–S-NPP', color: '#c4b5fd', start: 2012, end: 2026, editable: true, verified: false,
+                   desc: 'Años en que Aqua y S-NPP observan a la vez. TODO: confirmar (depende de la deriva de Aqua)' },
+  },
+  // Razones medidas con datos 2025 (todo Perú)
+  ratios: {
+    noaa20_snpp:  { count: 0.99, active_cells: 1.06, total_frp: 0.96 },
+    noaa20_aqua:  { count: 7.35, active_cells: 3.92, total_frp: 2.81, monthMin: 6.05, monthMax: 13.55 },
+  },
+  // Demo de resolución (ilustrativo)
+  resolutionDemo: {
+    areaKm: 12, modisKm: 1, viirsKm: 0.375,
+    radiusMin: 0.15, radiusMax: 3, radiusDefault: 0.6,
+    detectThreshold: 0.05,   // fracción mínima del píxel cubierta por fuego para "detectar"
+  },
+};
+
+const ROLE_LABELS = {
+  reference: 'Referencia', calibration: 'Calibración', validation: 'Validación',
+  continuity: 'Continuidad', sensitivity: 'Solo sensibilidad',
+};
+
+const SATELLITES = [
+  {
+    id: 'terra', name: 'Terra', family: 'MODIS', sensor: 'MODIS', resolution: '1 km',
+    overpass: { text: '~10:30 (mañana); hora desplazada en años recientes', verified: false },
+    launch:     { date: '1999-12', label: 'dic. 1999',  verified: false },
+    firmsStart: { date: '2000-11', label: 'nov. 2000',  verified: false },
+    firmsEnd: null,
+    roles: ['sensitivity'],
+    notes: ['Pocas detecciones en 2025.', 'Fuera de la calibración: solo comprobación cruzada en años estables.'],
+  },
+  {
+    id: 'aqua', name: 'Aqua', family: 'MODIS', sensor: 'MODIS', resolution: '1 km',
+    overpass: { text: '~13:30 (tarde), similar a VIIRS', verified: false },
+    launch:     { date: '2002-05', label: 'may. 2002',            verified: false },
+    firmsStart: { date: '2002-07', label: 'mediados de 2002',     verified: false },
+    firmsEnd: null,
+    roles: ['reference'],
+    notes: ['Referencia MODIS del proyecto.', 'TODO: verificar desde qué año hay deriva de órbita (cambio de hora de paso).'],
+  },
+  {
+    id: 'snpp', name: 'S-NPP', family: 'VIIRS', sensor: 'VIIRS', resolution: '375 m',
+    overpass: { text: 'TODO: PLACEHOLDER (confirmar hora de paso; tarde, similar a Aqua)', verified: false },
+    launch:     { date: '2011-10', label: 'oct. 2011', verified: false },
+    firmsStart: { date: '2012-01', label: 'ene. 2012', verified: false },
+    firmsEnd:   { date: '2026-11-02', label: '2-nov-2026', verified: true },
+    roles: ['calibration'],
+    notes: ['Calibración principal.', 'Ya no entrega datos nuevos; su historial sigue disponible en FIRMS.'],
+  },
+  {
+    id: 'noaa20', name: 'NOAA-20', family: 'VIIRS', sensor: 'VIIRS', resolution: '375 m',
+    overpass: { text: '~50 min de diferencia con S-NPP', verified: false },
+    launch:     { date: '2017-11', label: 'nov. 2017', verified: false },
+    firmsStart: { date: '2018-01', label: 'TODO: confirmar inicio en FIRMS', verified: false, placeholder: true },
+    firmsEnd: null,
+    roles: ['validation', 'continuity'],
+    notes: ['Continuidad y control.', 'Razón NOAA-20/S-NPP ≈ 1: es el mismo instrumento.'],
+  },
+  {
+    id: 'noaa21', name: 'NOAA-21', family: 'VIIRS', sensor: 'VIIRS', resolution: '375 m',
+    overpass: { text: 'TODO: PLACEHOLDER (confirmar hora de paso)', verified: false },
+    launch:     { date: '2022-11', label: 'nov. 2022', verified: false },
+    firmsStart: { date: '2023-01', label: 'TODO: confirmar inicio en FIRMS', verified: false, placeholder: true },
+    firmsEnd: null,
+    roles: ['continuity'],
+    notes: ['Reemplazo directo de S-NPP.'],
+  },
+];
+
+// Historia del modo narrado. `at`: {sat,field} | {window} | {year}. Tokens: {r_count} {r_cells} {r_frp} {r_min} {r_max}
+const NARRATIVE = [
+  { title: 'Terra nace', at: { sat: 'terra', field: 'launch' }, highlight: ['terra'], zones: [],
+    text: 'Terra lleva el sensor MODIS (píxel de 1 km) y abre la serie histórica de puntos calientes en FIRMS. Pasa por la mañana (~10:30).' },
+  { title: 'Aqua se suma', at: { sat: 'aqua', field: 'firmsStart' }, highlight: ['terra', 'aqua'], zones: ['modisOnly'],
+    text: 'Aqua añade un segundo MODIS que pasa por la tarde (~13:30), parecido a VIIRS. Por eso es nuestra referencia MODIS. Terra queda fuera de la calibración.' },
+  { title: 'Llega VIIRS', at: { sat: 'snpp', field: 'firmsStart' }, highlight: ['snpp'], zones: ['viirsReal'],
+    text: 'VIIRS (S-NPP) ve píxeles de 375 m: detecta fuegos más pequeños. Desde aquí hay datos VIIRS reales, no estimados.' },
+  { title: 'El problema: no son comparables', at: { year: 2016 }, highlight: ['aqua', 'snpp'], zones: ['overlap'],
+    text: 'Con distinta resolución, sensibilidad y hora de paso, el mismo fuego cuenta distinto. En 2025, NOAA-20 registró {r_count}× los conteos de Aqua (celdas activas {r_cells}×, FRP total {r_frp}×), y por mes la razón va de {r_min} a {r_max}: un factor único no basta.' },
+  { title: 'Ventana de calibración', at: { window: 'calibration' }, highlight: ['aqua', 'snpp'], zones: ['calibration', 'validation'],
+    text: 'Con un GLM comparamos Aqua y S-NPP semana a semana en la ventana de calibración; exp(β) es la razón VIIRS/Aqua. Luego validamos con años retenidos que el factor funciona.' },
+  { title: 'La serie única', at: { window: 'viirsReal' }, highlight: [], zones: ['modisOnly', 'viirsReal'],
+    text: 'Resultado: 2002–2011 = Aqua × factor, marcado «estimado» y con banda de incertidumbre; 2012–hoy = VIIRS real. Una sola serie para el calendario de quema.' },
+];
+
+/* ---------------------------------------------------------------------
+   FASE 2 — datos editables
+   Tiempos: estimaciones mías (timeVerified:false) → TODO confirmar con el equipo.
+   --------------------------------------------------------------------- */
+
+const TEAM_ROLES = {
+  data:   { label: 'Descarga y limpieza' },
+  model:  { label: 'GLM y validación' },
+  clim:   { label: 'Climatología y anomalías' },
+  front:  { label: 'Front-end' },
+  text:   { label: 'Textos y presentación' },
+};
+
+const STEPS = [
+  { id: 0, icon: '🔎', title: 'Verificar fechas y deriva de Aqua', time: '≈ 0,5 día', timeVerified: false, roles: ['data', 'text'],
+    goal: 'Confirmar en FIRMS el inicio y fin de cada serie y desde qué año Aqua deriva de su órbita.',
+    inputs: ['Tabla SATELLITES (fechas con verified:false)', 'Documentación y archivo de FIRMS'],
+    outputs: ['Fechas confirmadas (verified:true)', 'Año de inicio de la deriva de Aqua'],
+    todo: ['Revisar en FIRMS la fecha de inicio de cada satélite', 'Confirmar el fin de S-NPP (2-nov-2026)', 'Revisar la hora de paso de Aqua por año para detectar la deriva', 'Actualizar SATELLITES y quitar las etiquetas "por verificar"'],
+    error: 'Dar por buenas fechas de memoria o de un artículo, sin comprobarlas en FIRMS.' },
+  { id: 1, icon: '⬇️', title: 'Descargar los datos', time: '≈ 1 día', timeVerified: false, roles: ['data'],
+    goal: 'Obtener los puntos calientes de cada satélite: primero todo Perú, después el área de interés (AOI) de Cusco.',
+    inputs: ['Acceso a FIRMS', 'Lista de satélites y años del paso 0'],
+    outputs: ['CSV de Aqua (y Terra aparte)', 'CSV de S-NPP 2012-2026, NOAA-20 y NOAA-21', 'Recorte del AOI de Cusco'],
+    todo: ['Descargar Aqua para todo Perú', 'Descargar Terra en archivos separados', 'Descargar S-NPP 2012-2026, NOAA-20 y NOAA-21', 'Recortar el AOI de Cusco con el mismo esquema de nombres'],
+    error: 'Mezclar Terra con Aqua en un solo archivo, o bajar solo Cusco antes de validar con Perú completo.' },
+  { id: 2, icon: '🧹', title: 'Limpiar', time: '≈ 1 día', timeVerified: false, roles: ['data'],
+    goal: 'Dejar una tabla diaria por celda y sensor, sin duplicados ni detecciones dudosas.',
+    inputs: ['CSV descargados'],
+    outputs: ['Tabla diaria por celda y sensor'],
+    todo: ['Quitar duplicados', 'Filtrar type == 0 (fuego presunto de vegetación)', 'Filtrar por confianza con EXCLUDE_LOW_CONFIDENCE=True y probar también False', 'Guardar la tabla diaria por celda y sensor'],
+    error: 'Aplicar el filtro de confianza igual a MODIS (numérica) y VIIRS (categorías) sin documentar la equivalencia.',
+    code: { title: 'limpieza básica', text: `import pandas as pd
+
+EXCLUDE_LOW_CONFIDENCE = True   # probar también False
+CELL_DEG = 0.05                 # TODO: definir tamaño de celda
+
+df = pd.read_csv("viirs-snpp_2025_Peru.csv")
+df = df.drop_duplicates(subset=["latitude", "longitude", "acq_date", "acq_time"])
+df = df[df["type"] == 0]
+if EXCLUDE_LOW_CONFIDENCE:
+    df = df[df["confidence"] != "l"]   # VIIRS: l/n/h; MODIS: 0-100
+
+df["cell"] = (df["latitude"] // CELL_DEG).astype(int).astype(str) + "_" + (df["longitude"] // CELL_DEG).astype(int).astype(str)
+daily = df.groupby(["acq_date", "cell"]).agg(count=("frp", "size"), frp=("frp", "sum")).reset_index()
+daily["sensor"] = "snpp"` } },
+  { id: 3, icon: '📅', title: 'Agregar a semana', time: '≈ 1 día', timeVerified: false, roles: ['data', 'model'],
+    goal: 'Construir una tabla larga con una fila por semana y sensor, con tres métricas.',
+    inputs: ['Tabla diaria por celda y sensor'],
+    outputs: ['Tabla larga: semana, sensor, count, temporada, zona, año'],
+    todo: ['Definir la semana (por ejemplo ISO) y usarla en todos los sensores', 'Calcular count, active_cells y total_frp', 'Asignar temporada y zona', 'Escribir cero explícito en semanas sin detecciones'],
+    error: 'Omitir las semanas sin detecciones: eso sesga el modelo hacia arriba.',
+    code: { title: 'tabla larga semanal', text: `daily["week"] = pd.to_datetime(daily["acq_date"]).dt.to_period("W").dt.start_time
+
+weekly = (daily.groupby(["week", "sensor"])
+          .agg(count=("count", "sum"),
+               active_cells=("cell", "nunique"),
+               total_frp=("frp", "sum"))
+          .reset_index())
+weekly["year"] = weekly["week"].dt.year
+# TODO: agregar columnas season y zone` } },
+  { id: 4, icon: '📈', title: 'Ajustar el GLM, de menos a más complejo', time: '≈ 2 días', timeVerified: false, roles: ['model'],
+    goal: 'Estimar la razón VIIRS/Aqua con modelos de complejidad creciente.',
+    inputs: ['Tabla larga de los años de calibración'],
+    outputs: ['Modelos A, B y C con exp(β) y errores'],
+    todo: ['Modelo A: un solo factor', 'Modelo B: factor por temporada', 'Modelo C: temporada + zona', 'Poisson con errores agrupados por semana (o binomial negativa si hay sobredispersión)', 'Gamma o Tweedie para total_frp'],
+    error: 'Pasar directo al modelo complejo sin comprobar si el simple ya basta, o ignorar la sobredispersión.',
+    code: { title: 'GLM con statsmodels', text: `import numpy as np
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+
+cal = weekly[weekly["year"].between(2012, 2017)].copy()   # ventana de calibración (ejemplo)
+cal["viirs"] = (cal["sensor"] != "aqua").astype(int)
+cal["week_id"] = cal["week"].astype(str)
+
+def fit(formula, family):
+    return smf.glm(formula, data=cal, family=family).fit(
+        cov_type="cluster", cov_kwds={"groups": cal["week_id"]})
+
+poisson = sm.families.Poisson()
+mA = fit("count ~ C(week_id) + viirs", poisson)                   # un factor
+mB = fit("count ~ C(week_id) + viirs:C(season)", poisson)         # por temporada
+mC = fit("count ~ C(week_id) + viirs:C(season):C(zone)", poisson) # temporada + zona
+
+# total_frp: Gamma o Tweedie con enlace log
+gamma = sm.families.Gamma(sm.families.links.Log())
+m_frp = fit("total_frp ~ C(week_id) + viirs", gamma)
+print("razón VIIRS/Aqua:", np.exp(mA.params["viirs"]))` } },
+  { id: 5, icon: '✅', title: 'Validar con años retenidos', time: '≈ 1,5 días', timeVerified: false, roles: ['model'],
+    goal: 'Comprobar que el factor predice bien años que no se usaron para calibrar.',
+    inputs: ['Modelos A, B y C', 'Años de validación'],
+    outputs: ['Tabla comparativa de modelos', 'Modelo elegido (el más simple que valida bien)'],
+    todo: ['Aplicar el factor a Aqua en los años retenidos', 'Calcular error total, correlación semanal, MAE y error por mes', 'Elegir el modelo más simple que valide bien', 'Hacer controles con NOAA-20 (razón NOAA-20/S-NPP ≈ 1)'],
+    error: 'Elegir el modelo por su ajuste en calibración en lugar de por su error en validación.',
+    code: { title: 'métricas de validación', text: `from sklearn.metrics import mean_absolute_error
+
+def validate(aqua_weekly, viirs_weekly, factor):
+    pred = aqua_weekly * factor
+    total_err = (pred.sum() - viirs_weekly.sum()) / viirs_weekly.sum() * 100
+    corr = np.corrcoef(pred, viirs_weekly)[0, 1]
+    mae = mean_absolute_error(viirs_weekly, pred)
+    return {"error_total_%": total_err, "corr": corr, "MAE": mae}
+
+# TODO: repetir por mes para ver el error estacional` } },
+  { id: 6, icon: '🔁', title: 'Reajustar con todos los años estables', time: '≈ 0,5 día', timeVerified: false, roles: ['model'],
+    goal: 'Con el modelo elegido, calcular el factor definitivo y su incertidumbre.',
+    inputs: ['Modelo elegido', 'Todos los años estables (sin años con deriva marcada)'],
+    outputs: ['exp(β) con IC 95 % guardado en un archivo'],
+    todo: ['Reajustar con todos los años estables', 'Guardar exp(β) con su IC 95 %'],
+    error: 'Incluir años inestables (deriva de Aqua o hora de paso desplazada) en el reajuste.',
+    code: { title: 'factor con IC 95 %', text: `beta = mA.params["viirs"]
+lo, hi = mA.conf_int().loc["viirs"]
+factor = pd.Series({"factor": np.exp(beta), "ic_inf": np.exp(lo), "ic_sup": np.exp(hi)})
+factor.to_csv("factor_count.csv")` } },
+  { id: 7, icon: '🛰️', title: 'Aplicar a 2002-2011', time: '≈ 0,5 día', timeVerified: false, roles: ['model', 'clim'],
+    goal: 'Convertir Aqua en un equivalente VIIRS para los años sin VIIRS.',
+    inputs: ['Aqua 2002-2011', 'Factor con IC 95 %'],
+    outputs: ['Serie estimada con banda inferior y superior'],
+    todo: ['Multiplicar Aqua por el factor (solo el factor, no el efecto de semana)', 'Propagar la incertidumbre: banda inferior con ic_inf, superior con ic_sup'],
+    error: 'Usar el efecto de semana del modelo en vez de solo el factor.',
+    code: { title: 'aplicar factor y bandas', text: `aq = weekly[(weekly["sensor"] == "aqua") & weekly["year"].between(2002, 2011)].copy()
+aq["valor"] = aq["count"] * factor["factor"]
+aq["banda_inf"] = aq["count"] * factor["ic_inf"]
+aq["banda_sup"] = aq["count"] * factor["ic_sup"]
+aq["fuente"] = "Aqua × factor (estimado)"` } },
+  { id: 8, icon: '🧩', title: 'Construir la serie única', time: '≈ 0,5 día', timeVerified: false, roles: ['model', 'clim'],
+    goal: 'Unir lo estimado (2002-2011) con lo real (2012-hoy) en una sola tabla.',
+    inputs: ['Serie estimada', 'VIIRS real (S-NPP, NOAA-20, NOAA-21)'],
+    outputs: ['Tabla única con valor, fuente y bandas'],
+    todo: ['Concatenar estimado y real', 'Rellenar la columna fuente ("estimado" o "VIIRS real")', 'En VIIRS real, bandas = valor (sin incertidumbre de conversión)'],
+    error: 'Olvidar marcar como "estimado" el tramo 2002-2011.',
+    code: { title: 'serie única', text: `real = weekly[(weekly["sensor"] == "snpp") & (weekly["year"] >= 2012)].copy()
+real["valor"] = real["count"]
+real["banda_inf"] = real["banda_sup"] = real["valor"]
+real["fuente"] = "VIIRS real"   # TODO: integrar NOAA-20/21 tras S-NPP
+
+serie = pd.concat([aq, real])[["week", "valor", "fuente", "banda_inf", "banda_sup"]].sort_values("week")` } },
+  { id: 9, icon: '🗓️', title: 'Productos del reto', time: '≈ 3 días', timeVerified: false, roles: ['clim', 'front', 'text'],
+    goal: 'Convertir la serie única en el calendario de actividad de quema y en la interfaz.',
+    inputs: ['Serie única'],
+    outputs: ['Climatología, anomalías, semáforo, calendario año×mes, CSV descargable, interfaz español/quechua'],
+    todo: ['Climatología: mediana y percentiles por semana del año', 'Anomalías: z-score o percentil frente a la climatología', 'Semáforo o escala de color', 'Calendario año × mes', 'CSV descargable', 'Interfaz en español y quechua'],
+    error: 'Publicar textos en quechua sin revisión de un hablante.',
+    code: { title: 'climatología y anomalía', text: `serie["woy"] = serie["week"].dt.isocalendar().week
+clim = serie.groupby("woy")["valor"].quantile([0.25, 0.5, 0.75]).unstack()
+clim.columns = ["p25", "mediana", "p75"]
+
+serie = serie.join(clim, on="woy")
+serie["pct_rank"] = serie.groupby("woy")["valor"].rank(pct=True)   # anomalía como percentil` } },
+  { id: 10, icon: '⚠️', title: 'Documentar limitaciones', time: '≈ 0,5 día', timeVerified: false, roles: ['text', 'model'],
+    goal: 'Dejar por escrito qué supuestos y límites tiene la serie.',
+    inputs: ['Resultados de validación', 'Hallazgos del paso 0'],
+    outputs: ['Sección de limitaciones en el informe y en la interfaz'],
+    todo: ['Relación entre sensores supuesta constante en el tiempo', 'Deriva de Aqua en años recientes', 'Incertidumbre de la serie estimada 2002-2011'],
+    error: 'Mostrar las bandas de incertidumbre como si fueran certeza.' },
+];
+
+// Etapas del diagrama: `steps` son ids de STEPS que se abren al tocar.
+const FLOW = [
+  { label: 'Calibrar', desc: 'Ajustar el GLM en años de calibración', steps: [3, 4] },
+  { label: 'Validar', desc: 'Probar en años retenidos', steps: [5] },
+  { label: 'Reajustar', desc: 'Factor final con años estables', steps: [6] },
+  { label: 'Aplicar', desc: 'Aqua × factor en 2002-2011', steps: [7, 8] },
+];
+
+const GLOSSARY = [
+  { id: 'calibrar', term: 'Calibrar', match: ['calibrar', 'calibración', 'calibra'],
+    def: 'Ajustar un sensor para que sus valores sean equivalentes a los de otro, usando años en que ambos observan a la vez.' },
+  { id: 'razon', term: 'Razón', match: ['razón', 'razones'],
+    def: 'Cociente entre dos mediciones. Una razón VIIRS/Aqua de 4 significa que VIIRS registra 4 veces lo que registra Aqua.' },
+  { id: 'glm', term: 'GLM', match: ['GLM'],
+    def: 'Modelo lineal generalizado: regresión para conteos o valores positivos con una distribución adecuada (Poisson, Gamma) y enlace log, así exp(β) es una razón.' },
+  { id: 'ic', term: 'Intervalo de confianza', match: ['intervalo de confianza', 'IC 95 %'],
+    def: 'Rango de valores plausibles para una estimación. Con IC 95 %, si repitiéramos el estudio muchas veces, ~95 % de los intervalos contendrían el valor verdadero.' },
+  { id: 'anomalia', term: 'Anomalía', match: ['anomalía', 'anomalías'],
+    def: 'Cuánto se aleja la actividad de una semana o mes de lo habitual (climatología), medida con z-score o percentil.' },
+];
+
+// Árbol de decisión sobre Terra
+const TERRA_TREE = {
+  start: 't1',
+  nodes: {
+    t1: { title: 'Prueba 1 · Razón Terra/Aqua por año',
+          question: 'Calcula la razón Terra/Aqua año por año. ¿Es estable, sin saltos, en la mayoría de los años?',
+          options: [{ label: 'Sí, es estable', next: 't2' }, { label: 'No, hay saltos', next: 'r1' }] },
+    t2: { title: 'Prueba 2 · ¿Mejora la validación?',
+          question: 'Si agregas Terra a la calibración, ¿mejoran el error total, la correlación y el MAE frente a solo Aqua?',
+          options: [{ label: 'Sí, mejora', next: 't3' }, { label: 'No mejora', next: 'r2' }] },
+    t3: { title: 'Prueba 3 · ¿Qué necesito de Terra?',
+          question: '¿Para qué necesitas realmente a Terra?',
+          options: [{ label: 'Solo una comprobación cruzada', next: 'r3' }, { label: 'Cubrir 2000-2002, antes de Aqua', next: 'r4' }] },
+    r1: { result: true, title: 'Resultado', text: 'Usa Terra solo en los años estables y excluye los años con salto (hora desplazada, pocas detecciones).' },
+    r2: { result: true, title: 'Resultado', text: 'Terra queda fuera de la calibración (decisión actual del equipo). Se conserva como comprobación cruzada.' },
+    r3: { result: true, title: 'Resultado', text: 'Compara Terra con Aqua × factor en años estables. No modifica el factor.' },
+    r4: { result: true, title: 'Resultado', text: 'Fuera del alcance actual: la serie final empieza en 2002. TODO: decidir si se explora aparte.' },
+  },
+};
+
+// Demo GLM ilustrativa (datos ficticios generados con semilla fija)
+const GLM_DEMO = { weeks: 52, trueFactor: 4.2, seed: 7, sliderMin: 1, sliderMax: 10, sliderStep: 0.05, sliderStart: 2 };
+
+/* =====================================================================
+   LÓGICA (no editar para cambiar datos)
+   ===================================================================== */
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const UNVERIFIED_TAG = '<span class="tag">por verificar en FIRMS</span>';
+const fmtNum = n => String(n).replace('.', ',');
+
+const state = {
+  selectedId: null,
+  roleFilter: null,                                   // null = todos
+  activeZones: new Set(['modisOnly', 'viirsReal']),
+  editZone: 'calibration',
+  narrStep: -1,                                       // -1 = modo narrado apagado
+};
+
+/* ---------- Utilidades de fecha y escala ---------- */
+function parseDate(str) {                              // 'AAAA-MM[-DD]' → año decimal
+  const [y, m = 1, d = 1] = str.split('-').map(Number);
+  const t0 = Date.UTC(y, 0, 1), t1 = Date.UTC(y + 1, 0, 1);
+  return y + (Date.UTC(y, m - 1, d) - t0) / (t1 - t0);
+}
+const pct = year => clamp((year - CONFIG.yearStart) / (CONFIG.yearEnd - CONFIG.yearStart) * 100, 0, 100);
+const satById = id => SATELLITES.find(s => s.id === id);
+const endOf = sat => parseDate(sat.firmsEnd ? sat.firmsEnd.date : CONFIG.today);
+
+function dateLine(title, d, ongoingText) {
+  if (!d) return ongoingText ? `<li>${title}: ${ongoingText}</li>` : '';
+  const todo = d.placeholder ? ' <b>TODO</b>' : '';
+  return `<li>${title}: ${d.label}${todo}${d.verified ? '' : ' ' + UNVERIFIED_TAG}</li>`;
+}
+
+function yearsText(sat) {
+  const a = Math.floor(parseDate(sat.firmsStart.date));
+  const b = sat.firmsEnd ? Math.floor(parseDate(sat.firmsEnd.date)) : 'hoy';
+  return `${sat.firmsStart.placeholder ? '~' : ''}${a}–${b}`;
+}
+
+/* ---------- Línea de tiempo ---------- */
+function axisHtml() {
+  const years = [];
+  for (let y = CONFIG.yearStart; y < CONFIG.yearEnd; y += 5) years.push(y);
+  const labels = years.map(y => `<span style="left:${pct(y)}%">${y}</span>`).join('');
+  return `<div class="row axis"><div class="lbl"><small>Año</small></div><div class="track">${labels}</div></div>`;
+}
+
+function gridlinesHtml() {
+  let out = '';
+  for (let y = CONFIG.yearStart; y <= CONFIG.yearEnd; y++) {
+    out += `<div class="gl${y % 5 === 0 ? ' major' : ''}" style="left:${pct(y)}%"></div>`;
+  }
+  return out;
+}
+
+function markerHtml(kind, d, extra = '') {
+  if (!d) return '';
+  const x = pct(parseDate(d.date));
+  const unv = kind !== 'end' && !d.verified ? ' unv' : '';
+  const inner = kind === 'end' ? '✕' : '';
+  const note = kind === 'end' ? `<span class="mk-note" style="left:${x}%">${d.label}</span>` : '';
+  return `${note}<span class="mk ${kind}${unv}" style="left:${x}%" ${extra}>${inner}</span>`;
+}
+
+function satRowHtml(sat, i) {
+  const left = pct(parseDate(sat.firmsStart.date));
+  const width = pct(endOf(sat)) - left;
+  const fam = sat.family.toLowerCase();
+  const pending = sat.firmsStart.placeholder ? ' pending' : '';
+  const aria = `${sat.name}: ${sat.sensor} ${sat.resolution}, datos ${yearsText(sat)}. Mostrar ficha.`;
+  return `<div class="row" data-sat="${sat.id}">
+    <div class="lbl"><b>${sat.name}</b><small>${sat.resolution}</small></div>
+    <div class="track">
+      <button type="button" class="bar ${fam}${pending}" data-id="${sat.id}" style="left:${left}%;width:${width}%;--i:${i}" aria-label="${aria}">${sat.name}</button>
+      ${markerHtml('launch', sat.launch)}${markerHtml('start', sat.firmsStart)}${markerHtml('end', sat.firmsEnd)}
+    </div>
+  </div>`;
+}
+
+function zoneLanesHtml() {
+  return Object.entries(CONFIG.zones).map(([id, z]) => `
+    <div class="row" style="min-height:36px">
+      <div class="lbl"><small class="lane-lbl">${z.label}</small></div>
+      <div class="track"><div class="lane-bar" data-lane="${id}" style="--zc:${z.color}"></div></div>
+    </div>`).join('');
+}
+
+function renderChart() {
+  const tints = Object.entries(CONFIG.zones).map(([id, z]) =>
+    `<div class="tint" data-tint="${id}" style="--zc:${z.color}"></div>`).join('');
+  let rows = '', n = 0;
+  ['MODIS', 'VIIRS'].forEach(fam => {
+    const sats = SATELLITES.filter(s => s.family === fam);
+    rows += `<div class="grp ${fam.toLowerCase()}"><span>${fam} · ${sats[0].resolution}</span></div>`;
+    sats.forEach(s => { rows += satRowHtml(s, n++); });
+  });
+  rows += `<div class="grp zones"><span>Zonas</span></div>${zoneLanesHtml()}`;
+  $('#chart').innerHTML = `<div class="under">${gridlinesHtml()}${tints}</div>${axisHtml()}${rows}
+    <div class="over"><div class="cursor" id="cursor"><span id="cursorLbl"></span></div></div>`;
+  updateZones();
+  applyDimming();
+}
+
+function observeChart() {
+  const chart = $('#chart');
+  if (!('IntersectionObserver' in window)) { chart.classList.add('drawn'); return; }
+  const io = new IntersectionObserver(entries => {
+    if (entries.some(e => e.isIntersecting)) { chart.classList.add('drawn'); io.disconnect(); }
+  }, { threshold: 0.25 });
+  io.observe(chart);
+}
+
+/* ---------- Atenuación (filtro por papel / narración) ---------- */
+function visibleIds() {
+  const step = NARRATIVE[state.narrStep];
+  if (step && step.highlight.length) return new Set(step.highlight);
+  if (step) return new Set(SATELLITES.map(s => s.id));
+  if (state.roleFilter) return new Set(SATELLITES.filter(s => s.roles.includes(state.roleFilter)).map(s => s.id));
+  return new Set(SATELLITES.map(s => s.id));
+}
+function applyDimming() {
+  const ids = visibleIds();
+  document.querySelectorAll('#chart .row[data-sat]').forEach(r => r.classList.toggle('dim', !ids.has(r.dataset.sat)));
+}
+
+/* ---------- Filtros por papel ---------- */
+function renderRoleFilters() {
+  const box = $('#roleFilters');
+  const items = [[null, 'Todos'], ...Object.entries(ROLE_LABELS)];
+  box.innerHTML = items.map(([id, label]) =>
+    `<button type="button" class="chip" data-role="${id ?? ''}" aria-pressed="${state.roleFilter === id}" aria-label="Filtrar: ${label}">${label}</button>`).join('');
+  box.onclick = e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    state.roleFilter = b.dataset.role || null;
+    box.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String((c.dataset.role || null) === state.roleFilter)));
+    applyDimming();
+  };
+}
+
+/* ---------- Zonas ---------- */
+function renderZoneToggles() {
+  const box = $('#zoneToggles');
+  box.innerHTML = Object.entries(CONFIG.zones).map(([id, z]) =>
+    `<button type="button" class="chip zone" data-zone="${id}" style="--zc:${z.color}" aria-pressed="${state.activeZones.has(id)}" aria-label="Mostrar zona: ${z.label}">${z.label}</button>`).join('');
+  box.onclick = e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    const id = b.dataset.zone;
+    state.activeZones.has(id) ? state.activeZones.delete(id) : state.activeZones.add(id);
+    syncZoneUI();
+  };
+}
+function syncZoneUI() {
+  document.querySelectorAll('#zoneToggles .chip').forEach(c => c.setAttribute('aria-pressed', String(state.activeZones.has(c.dataset.zone))));
+  updateZones();
+}
+function updateZones() {
+  Object.entries(CONFIG.zones).forEach(([id, z]) => {
+    const on = state.activeZones.has(id);
+    const left = pct(z.start), width = pct(z.end + 1) - left;
+    const lane = $(`[data-lane="${id}"]`), tint = $(`[data-tint="${id}"]`);
+    if (!lane || !tint) return;
+    Object.assign(lane.style, { left: left + '%', width: width + '%' });
+    lane.textContent = `${z.start}–${z.end}`;
+    lane.classList.toggle('on', on);
+    Object.assign(tint.style, { left: left + '%', width: width + '%' });
+    tint.classList.toggle('on', on);
+  });
+  const info = [...state.activeZones].map(id => {
+    const z = CONFIG.zones[id];
+    return `<b style="color:${z.color}">${z.label} ${z.start}–${z.end}:</b> ${z.desc}${z.verified ? '' : ' ' + UNVERIFIED_TAG}`;
+  });
+  $('#zoneInfo').innerHTML = info.length ? info.join('<br>') : 'Activa una zona para ver su significado.';
+}
+
+/* ---------- Slider de rango (dos asas) ---------- */
+function setupRange() {
+  const lastYear = CONFIG.yearEnd - 1;
+  const rs = $('#rStart'), re = $('#rEnd');
+  [rs, re].forEach(r => { r.min = CONFIG.yearStart; r.max = lastYear; });
+  $('#dualTicks').innerHTML = [CONFIG.yearStart, 2005, 2010, 2015, 2020, 2025, lastYear].map(y => `<span>${y}</span>`).join('');
+  const editable = Object.entries(CONFIG.zones).filter(([, z]) => z.editable);
+  $('#winPicker').innerHTML = editable.map(([id, z]) =>
+    `<button type="button" class="chip zone" data-win="${id}" style="--zc:${z.color}" aria-pressed="${id === state.editZone}">${z.label}</button>`).join('');
+  $('#winPicker').onclick = e => {
+    const b = e.target.closest('[data-win]'); if (!b) return;
+    state.editZone = b.dataset.win;
+    document.querySelectorAll('#winPicker .chip').forEach(c => {
+      const on = c.dataset.win === state.editZone;
+      c.setAttribute('aria-pressed', String(on));
+    });
+    state.activeZones.add(state.editZone); syncZoneUI(); loadRange();
+  };
+  rs.oninput = () => { if (+rs.value > +re.value) rs.value = re.value; saveRange(); };
+  re.oninput = () => { if (+re.value < +rs.value) re.value = rs.value; saveRange(); };
+  loadRange();
+}
+function loadRange() {
+  const z = CONFIG.zones[state.editZone];
+  $('#rStart').value = z.start; $('#rEnd').value = z.end;
+  $('#dual').style.setProperty('--zc', z.color);
+  $('#rangeCard').style.setProperty('--zc', z.color);
+  paintRange();
+}
+function saveRange() {
+  const z = CONFIG.zones[state.editZone];
+  z.start = +$('#rStart').value; z.end = +$('#rEnd').value;
+  state.activeZones.add(state.editZone);
+  syncZoneUI(); paintRange();
+}
+function paintRange() {
+  const z = CONFIG.zones[state.editZone];
+  const span = CONFIG.yearEnd - 1 - CONFIG.yearStart;
+  const a = (z.start - CONFIG.yearStart) / span * 100, b = (z.end - CONFIG.yearStart) / span * 100;
+  Object.assign($('#dualFill').style, { left: a + '%', width: (b - a) + '%' });
+  $('#rangeText').innerHTML = `<span style="color:${z.color}">${z.label}</span>: ${z.start} – ${z.end}${z.verified ? '' : ' ' + UNVERIFIED_TAG}`;
+  $('#rStart').setAttribute('aria-valuetext', String(z.start));
+  $('#rEnd').setAttribute('aria-valuetext', String(z.end));
+}
+
+/* ---------- Panel de detalle ---------- */
+function renderDetail() {
+  const box = $('#detail');
+  const sat = satById(state.selectedId);
+  if (!sat) { box.innerHTML = '<p class="sub">👆 Pasa el cursor, enfoca con el teclado o toca una barra para ver su ficha.</p>'; return; }
+  const roles = sat.roles.map(r => `<span class="rolechip">${ROLE_LABELS[r]}</span>`).join('');
+  const overpass = `${sat.overpass.text}${sat.overpass.verified ? '' : ' ' + UNVERIFIED_TAG}`;
+  box.innerHTML = `
+    <h3 class="h3" style="color:${sat.family === 'MODIS' ? 'var(--orange)' : 'var(--blue)'}">${sat.name} <span class="sub" style="font-size:.9rem">· ${sat.sensor}</span></h3>
+    <dl>
+      <div><dt>Resolución</dt><dd>${sat.resolution}</dd></div>
+      <div><dt>Hora de paso</dt><dd>${overpass}</dd></div>
+      <div><dt>Años de datos en FIRMS</dt><dd>${yearsText(sat)}${sat.firmsStart.verified ? '' : ' ' + UNVERIFIED_TAG}</dd></div>
+      <div><dt>Papel en el proyecto</dt><dd>${roles}</dd></div>
+    </dl>
+    <ul>
+      ${dateLine('Lanzamiento', sat.launch)}
+      ${dateLine('Inicio en FIRMS', sat.firmsStart)}
+      ${dateLine('Fin de datos nuevos', sat.firmsEnd, 'sin fecha de fin (activo)')}
+    </ul>
+    <details class="more"><summary>Notas y pendientes (${sat.notes.length})</summary>
+      <ul>${sat.notes.map(n => `<li>${n}</li>`).join('')}</ul></details>`;
+}
+function selectSat(id) {
+  if (state.selectedId === id) return;
+  state.selectedId = id;
+  document.querySelectorAll('.bar').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
+  renderDetail();
+}
+function bindBars() {
+  const chart = $('#chart');
+  ['mouseover', 'focusin', 'click'].forEach(ev => chart.addEventListener(ev, e => {
+    const b = e.target.closest('.bar'); if (b) selectSat(b.dataset.id);
+  }));
+}
+
+/* ---------- Modo narrado ---------- */
+function resolveAt(at) {
+  if (at.year != null) return at.year;
+  if (at.window) return CONFIG.zones[at.window].start;
+  return parseDate(satById(at.sat)[at.field].date);
+}
+function fillTokens(text) {
+  const r = CONFIG.ratios.noaa20_aqua;
+  return text.replace('{r_count}', fmtNum(r.count)).replace('{r_cells}', fmtNum(r.active_cells))
+    .replace('{r_frp}', fmtNum(r.total_frp)).replace('{r_min}', fmtNum(r.monthMin)).replace('{r_max}', fmtNum(r.monthMax));
+}
+function showNarrStep(i) {
+  state.narrStep = i;
+  const on = i >= 0;
+  $('#narrBody').hidden = !on;
+  $('#narrStart').hidden = on;
+  $('#cursor').classList.toggle('on', on);
+  if (on) {
+    const step = NARRATIVE[i], year = resolveAt(step.at);
+    $('#narrCount').textContent = `Paso ${i + 1} de ${NARRATIVE.length}`;
+    $('#narrTitle').textContent = step.title;
+    $('#narrText').textContent = fillTokens(step.text);
+    $('#cursor').style.left = pct(year) + '%';
+    $('#cursorLbl').textContent = Math.floor(year);
+    state.activeZones = new Set(step.zones); syncZoneUI();
+    $('#narrPrev').disabled = i === 0;
+    $('#narrNext').textContent = i === NARRATIVE.length - 1 ? '↺ Reiniciar' : 'Siguiente →';
+    $('#cursor').scrollIntoView({ inline: 'center', block: 'nearest', behavior: reducedMotion ? 'auto' : 'smooth' });
+  }
+  applyDimming();
+}
+function setupNarration() {
+  $('#narrStart').onclick = () => { showNarrStep(0); $('#narrNext').focus(); };
+  $('#narrPrev').onclick = () => showNarrStep(Math.max(0, state.narrStep - 1));
+  $('#narrNext').onclick = () => showNarrStep(state.narrStep >= NARRATIVE.length - 1 ? 0 : state.narrStep + 1);
+  $('#narrExit').onclick = () => { showNarrStep(-1); $('#narrStart').focus(); };
+  document.addEventListener('keydown', e => {            // ← / → recorren la narración
+    if (state.narrStep < 0 || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight' && state.narrStep < NARRATIVE.length - 1) showNarrStep(state.narrStep + 1);
+    if (e.key === 'ArrowLeft' && state.narrStep > 0) showNarrStep(state.narrStep - 1);
+  });
+}
+
+/* ---------- Visual de resolución (ilustrativa) ---------- */
+function fireRadiusAt(angle, r) {                       // contorno irregular del incendio
+  return r * (1 + 0.25 * Math.sin(3 * angle + 1) + 0.12 * Math.sin(5 * angle));
+}
+function isBurning(x, y, r) {
+  const dx = (x - 6.2) / 1.25, dy = (y - 5.8) * 1.1;
+  return Math.hypot(dx, dy) <= fireRadiusAt(Math.atan2(dy, dx), r);
+}
+function coverage(x0, size, y0, r) {                    // fracción del píxel cubierta por fuego
+  const n = Math.max(3, Math.round(size / 0.0625));
+  let hit = 0;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (isBurning(x0 + (i + 0.5) * size / n, y0 + (j + 0.5) * size / n, r)) hit++;
+  }
+  return hit / (n * n);
+}
+function buildGrid(svg, cellKm, cls) {
+  const n = Math.round(CONFIG.resolutionDemo.areaKm / cellKm);
+  let html = '';
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    html += `<rect class="cell ${cls}" data-x="${i * cellKm}" data-y="${j * cellKm}" x="${i * cellKm}" y="${j * cellKm}" width="${cellKm}" height="${cellKm}"/>`;
+  }
+  svg.innerHTML = html + '<polygon class="fire"/>';
+}
+function paintGrid(svg, cellKm, r) {
+  let count = 0;
+  svg.querySelectorAll('.cell').forEach(c => {
+    const hit = coverage(+c.dataset.x, cellKm, +c.dataset.y, r) >= CONFIG.resolutionDemo.detectThreshold;
+    c.classList.toggle('hit', hit); if (hit) count++;
+  });
+  const pts = [];
+  for (let a = 0; a < 2 * Math.PI; a += 0.1) {
+    pts.push(`${(6.2 + 1.25 * fireRadiusAt(a, r) * Math.cos(a)).toFixed(3)},${(5.8 + fireRadiusAt(a, r) * Math.sin(a) / 1.1).toFixed(3)}`);
+  }
+  svg.querySelector('.fire').setAttribute('points', pts.join(' '));
+  return count;
+}
+function setupResolution() {
+  const d = CONFIG.resolutionDemo, sm = $('#svgModis'), sv = $('#svgViirs'), slider = $('#fireSize');
+  Object.assign(slider, { min: d.radiusMin, max: d.radiusMax, step: 0.05, value: d.radiusDefault });
+  buildGrid(sm, d.modisKm, 'm'); buildGrid(sv, d.viirsKm, 'v');
+  const update = () => {
+    const r = +slider.value;
+    const m = paintGrid(sm, d.modisKm, r), v = paintGrid(sv, d.viirsKm, r);
+    $('#fireSizeVal').textContent = `radio ≈ ${fmtNum(r.toFixed(2))} km`;
+    $('#cntModis').textContent = m; $('#cntViirs').textContent = v;
+    $('#resMsg').textContent = m === 0
+      ? (v > 0 ? 'MODIS no detecta este fuego; VIIRS sí. Por eso VIIRS registra más puntos.' : 'Ningún sensor detecta un fuego tan pequeño.')
+      : `VIIRS registra ≈ ${fmtNum((v / m).toFixed(1))}× más píxeles con detección que MODIS para el mismo incendio.`;
+  };
+  slider.oninput = update; update();
+}
+
+/* ---------- Navegación: sección activa ---------- */
+function setupNav() {
+  if (!('IntersectionObserver' in window)) return;
+  const io = new IntersectionObserver(entries => entries.forEach(e => {
+    if (!e.isIntersecting) return;
+    document.querySelectorAll('[data-nav]').forEach(a => a.setAttribute('aria-current', String(a.dataset.nav === e.target.id)));
+  }), { rootMargin: '-40% 0px -55% 0px' });
+  ['timeline', 'steps'].forEach(id => io.observe(document.getElementById(id)));
+}
+
+/* =====================================================================
+   FASE 2 — lógica
+   ===================================================================== */
+
+const p2 = { done: new Set(), open: new Set([0]), role: null, terraPath: [] };   // estado solo en memoria
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/* ---------- Términos del glosario con tooltip ---------- */
+const TERM_MAP = new Map(GLOSSARY.flatMap(g => g.match.map(m => [m.toLowerCase(), g])));
+const TERM_RX = new RegExp('(?<![\\p{L}])(' + [...TERM_MAP.keys()].sort((a, b) => b.length - a.length)
+  .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(?![\\p{L}])', 'giu');
+
+function withTerms(text) {                                // envuelve la 1.ª aparición de cada término
+  const used = new Set();
+  return esc(text).replace(TERM_RX, m => {
+    const g = TERM_MAP.get(m.toLowerCase());
+    if (used.has(g.id)) return m;
+    used.add(g.id);
+    return `<span class="term" tabindex="0" data-g="${g.id}">${m}</span>`;
+  });
+}
+function setupTooltips() {
+  const tip = $('#tip');
+  const show = t => {
+    const g = GLOSSARY.find(x => x.id === t.dataset.g); if (!g) return;
+    tip.textContent = g.def; tip.hidden = false;
+    const r = t.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = clamp(r.left, 8, window.innerWidth - w - 8) + 'px';
+    tip.style.top = (r.bottom + h + 10 > window.innerHeight ? r.top - h - 6 : r.bottom + 6) + 'px';
+    t.setAttribute('aria-describedby', 'tip');
+  };
+  const hide = () => { tip.hidden = true; };
+  document.addEventListener('mouseover', e => { const t = e.target.closest('.term'); if (t) show(t); });
+  document.addEventListener('focusin', e => { const t = e.target.closest('.term'); if (t) show(t); });
+  document.addEventListener('mouseout', e => { if (e.target.closest('.term')) hide(); });
+  document.addEventListener('focusout', hide);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+  window.addEventListener('scroll', hide, { passive: true });
+}
+
+/* ---------- Glosario flotante ---------- */
+function setupGlossary() {
+  $('#glossList').innerHTML = GLOSSARY.map(g => `<dt>${g.term}</dt><dd>${g.def}</dd>`).join('');
+  const btn = $('#glossBtn'), panel = $('#glossPanel');
+  const toggle = open => {
+    panel.hidden = !open; btn.setAttribute('aria-expanded', String(open));
+    btn.setAttribute('aria-label', open ? 'Cerrar glosario' : 'Abrir glosario');
+    if (open) $('#glossClose').focus(); else btn.focus();
+  };
+  btn.onclick = () => toggle(panel.hidden);
+  $('#glossClose').onclick = () => toggle(false);
+  panel.addEventListener('keydown', e => { if (e.key === 'Escape') toggle(false); });
+}
+
+/* ---------- Hoja de ruta (pasos 0-10) ---------- */
+const stepTasks = s => s.todo.map((_, i) => `${s.id}:${i}`);
+const totalTasks = () => STEPS.reduce((n, s) => n + s.todo.length, 0);
+
+function stepHtml(s) {
+  const roles = s.roles.map(r => `<span class="rolechip" style="margin:0">${TEAM_ROLES[r].label}</span>`).join(' ');
+  const list = (arr) => `<ul class="plain">${arr.map(x => `<li>${withTerms(x)}</li>`).join('')}</ul>`;
+  const checks = s.todo.map((t, i) => `
+    <div class="check"><input type="checkbox" id="c-${s.id}-${i}" data-task="${s.id}:${i}" aria-label="Completado: ${esc(t)}">
+    <label for="c-${s.id}-${i}">${withTerms(t)}</label></div>`).join('');
+  const code = s.code ? `
+    <details class="code"><summary>🐍 Ejemplo Python: ${s.code.title}</summary>
+      <div class="codewrap"><button type="button" class="btn copy" aria-label="Copiar el código de ${esc(s.title)}">Copiar</button>
+      <pre tabindex="0"><code>${esc(s.code.text)}</code></pre></div></details>` : '';
+  return `<li class="step" id="step-${s.id}" data-step="${s.id}">
+    <span class="dot" aria-hidden="true">${s.id}</span>
+    <div class="step-card">
+      <button type="button" class="step-head" aria-expanded="false" aria-controls="panel-${s.id}">
+        <span class="h3t"><span aria-hidden="true">${s.icon}</span> Paso ${s.id} · ${s.title}</span>
+        <span class="badge" data-count></span>
+        <span class="chev" aria-hidden="true">▾</span>
+      </button>
+      <div class="panel" id="panel-${s.id}" role="region" aria-label="Detalle del paso ${s.id}"><div>
+        <div class="step-body">
+          <p class="goal">${withTerms(s.goal)}</p>
+          <p class="meta"><span class="badge">⏱ ${s.time}</span>${s.timeVerified ? '' : '<span class="tag">estimado, TODO confirmar</span>'} ${roles}</p>
+          <div>${checks}</div>
+          ${code}
+          <details class="more"><summary>Entradas, salidas y error común</summary>
+            <div class="cols" style="margin-top:.6rem">
+              <div><p class="mini">Entradas</p>${list(s.inputs)}</div>
+              <div><p class="mini">Salidas</p>${list(s.outputs)}</div>
+            </div>
+            <div class="errbox" style="margin-top:.8rem"><p class="mini" style="color:#fecaca">Error común</p><p>${withTerms(s.error)}</p></div>
+          </details>
+        </div>
+      </div></div>
+    </div></li>`;
+}
+
+function renderRoadmap() {
+  $('#roadmap').innerHTML = STEPS.map(stepHtml).join('');
+  STEPS.forEach(syncStep);
+  updateProgress();
+}
+function syncStep(s) {
+  const li = $(`#step-${s.id}`), open = p2.open.has(s.id);
+  const doneCount = stepTasks(s).filter(k => p2.done.has(k)).length;
+  li.classList.toggle('open', open);
+  li.classList.toggle('done', doneCount === s.todo.length);
+  $('.step-head', li).setAttribute('aria-expanded', String(open));
+  $('.panel > div', li).inert = !open;                 // contenido plegado no es enfocable
+  $('[data-count]', li).textContent = `${doneCount}/${s.todo.length}`;
+  const hasRole = !p2.role || s.roles.includes(p2.role);
+  li.classList.toggle('dim', !hasRole);
+  li.classList.toggle('hl', !!p2.role && hasRole);
+}
+function updateProgress() {
+  const pctDone = Math.round(p2.done.size / totalTasks() * 100);
+  $('#pfill').style.width = pctDone + '%';
+  $('#pbar').setAttribute('aria-valuenow', String(pctDone));
+  $('#ptext').textContent = `${pctDone} % · ${p2.done.size} de ${totalTasks()} tareas`;
+}
+function openSteps(ids) {
+  ids.forEach(id => p2.open.add(id));
+  STEPS.forEach(syncStep);
+  const el = $(`#step-${ids[0]}`);
+  el.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+  ids.forEach(id => { const e = $(`#step-${id}`); e.classList.remove('flash'); void e.offsetWidth; e.classList.add('flash'); });
+}
+async function copyText(text, btn) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {                                               // respaldo si el portapapeles no está disponible
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  btn.textContent = '✓ Copiado';
+  setTimeout(() => { btn.textContent = 'Copiar'; }, 1500);
+}
+function setupRoadmap() {
+  const road = $('#roadmap');
+  road.addEventListener('click', e => {
+    const head = e.target.closest('.step-head');
+    if (head) {
+      const id = +head.closest('.step').dataset.step;
+      p2.open.has(id) ? p2.open.delete(id) : p2.open.add(id);
+      syncStep(STEPS[id]); return;
+    }
+    const copy = e.target.closest('.copy');
+    if (copy) copyText($('code', copy.parentElement).textContent, copy);
+  });
+  road.addEventListener('change', e => {
+    const k = e.target.dataset.task; if (!k) return;
+    e.target.checked ? p2.done.add(k) : p2.done.delete(k);
+    syncStep(STEPS[+k.split(':')[0]]); updateProgress();
+  });
+  $('#expandAll').onclick = () => { STEPS.forEach(s => p2.open.add(s.id)); STEPS.forEach(syncStep); };
+  $('#collapseAll').onclick = () => { p2.open.clear(); STEPS.forEach(syncStep); };
+}
+
+/* ---------- Selector de rol del equipo ---------- */
+function renderTeamRoles() {
+  const box = $('#teamRoles');
+  const items = [[null, 'Todos'], ...Object.entries(TEAM_ROLES).map(([id, r]) => [id, r.label])];
+  box.innerHTML = items.map(([id, label]) =>
+    `<button type="button" class="chip" data-role="${id ?? ''}" aria-pressed="${p2.role === id}" aria-label="Rol: ${label}">${label}</button>`).join('');
+  box.onclick = e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    p2.role = b.dataset.role || null;
+    box.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String((c.dataset.role || null) === p2.role)));
+    STEPS.forEach(syncStep);
+    if (p2.role) openSteps(STEPS.filter(s => s.roles.includes(p2.role)).map(s => s.id));
+  };
+}
+
+/* ---------- Diagrama de flujo ---------- */
+function renderFlow() {
+  const flow = $('#flow');
+  flow.innerHTML = FLOW.map((f, i) => `
+    ${i ? '<span class="farrow" aria-hidden="true">→</span>' : ''}
+    <button type="button" class="fnode" style="--i:${i}" role="listitem" data-flow="${i}" aria-label="${f.label}: ${f.desc}. Abrir pasos ${f.steps.join(' y ')}">
+      <b>${i + 1}. ${f.label}</b><small>${f.desc}</small></button>`).join('');
+  flow.onclick = e => { const b = e.target.closest('[data-flow]'); if (b) openSteps(FLOW[+b.dataset.flow].steps); };
+}
+
+/* ---------- Demo GLM (datos ilustrativos) ---------- */
+function seededRandom(seed) {                           // mulberry32
+  return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+function buildGlmData() {
+  const rnd = seededRandom(GLM_DEMO.seed), a = [], v = [];
+  for (let i = 0; i < GLM_DEMO.weeks; i++) {
+    const season = Math.exp(-(((i - 32) / 8) ** 2)) + 0.12;          // pico de quema a mitad de año
+    const base = 60 * season;
+    a.push(Math.round(base * (0.85 + 0.3 * rnd())));
+    v.push(Math.round(base * GLM_DEMO.trueFactor * (0.85 + 0.3 * rnd())));
+  }
+  return { a, v, sumA: a.reduce((x, y) => x + y, 0), sumV: v.reduce((x, y) => x + y, 0) };
+}
+function setupGlmDemo() {
+  const d = buildGlmData(), g = GLM_DEMO, slider = $('#factor'), svg = $('#glmSvg');
+  Object.assign(slider, { min: g.sliderMin, max: g.sliderMax, step: g.sliderStep, value: g.sliderStart });
+  const W = 600, H = 230, pad = 12, yMax = Math.max(...d.v) * 1.6;
+  const X = i => pad + i * (W - 2 * pad) / (g.weeks - 1), Y = n => H - 22 - Math.min(n, yMax) / yMax * (H - 40);
+  const line = (arr, k) => arr.map((n, i) => `${X(i).toFixed(1)},${Y(n * k).toFixed(1)}`).join(' ');
+  const best = d.sumV / d.sumA;
+  const update = () => {
+    const f = +slider.value, err = (d.sumA * f - d.sumV) / d.sumV * 100, abs = Math.abs(err);
+    svg.innerHTML = `
+      <line x1="${pad}" y1="${H - 22}" x2="${W - pad}" y2="${H - 22}" stroke="#2a3040"/>
+      <text x="${pad}" y="${H - 6}" fill="#a6a9b5" font-size="11">semana 1</text>
+      <text x="${W - pad}" y="${H - 6}" fill="#a6a9b5" font-size="11" text-anchor="end">semana ${g.weeks}</text>
+      <text x="${W / 2}" y="14" fill="#fcd34d" font-size="11" text-anchor="middle">ILUSTRATIVO</text>
+      <polyline fill="none" stroke="#60a5fa" stroke-width="2.5" points="${line(d.v, 1)}"/>
+      <polyline fill="none" stroke="#a6a9b5" stroke-width="1.5" stroke-dasharray="4 4" points="${line(d.a, 1)}"/>
+      <polyline fill="none" stroke="#fbbf24" stroke-width="2.5" points="${line(d.a, f)}"/>`;
+    $('#factorVal').textContent = fmtNum(f.toFixed(2));
+    const el = $('#glmErr');
+    el.textContent = `${err > 0 ? '+' : ''}${fmtNum(err.toFixed(1))} %`;
+    el.style.color = abs <= 5 ? '#86efac' : abs <= 20 ? 'var(--amber)' : 'var(--red)';
+    $('#glmMsg').textContent = abs <= 5 ? 'Muy cerca de VIIRS.' : err > 0 ? 'Aqua × factor se pasa de VIIRS.' : 'Aqua × factor se queda corto.';
+  };
+  slider.oninput = update;
+  $('#glmBest').onclick = () => { slider.value = clamp(best, g.sliderMin, g.sliderMax); update(); };
+  update();
+}
+
+/* ---------- Árbol de decisión de Terra ---------- */
+function renderTerra(nodeId = TERRA_TREE.start) {
+  const n = TERRA_TREE.nodes[nodeId], box = $('#terraNode');
+  box.classList.remove('result'); void box.offsetWidth;
+  box.className = 'node' + (n.result ? ' result' : '');
+  box.innerHTML = n.result
+    ? `<h4 class="h3">✅ ${n.title}</h4><p>${withTerms(n.text)}</p><button type="button" class="btn primary" id="terraReset" style="margin-top:.8rem">↺ Empezar de nuevo</button>`
+    : `<h4 class="h3">${n.title}</h4><p>${withTerms(n.question)}</p><div class="flex flex-wrap gap-2" style="margin-top:.8rem">
+        ${n.options.map(o => `<button type="button" class="btn" data-next="${o.next}" data-label="${esc(o.label)}">${o.label}</button>`).join('')}</div>`;
+  $('#terraPath').innerHTML = p2.terraPath.map(p => `<li>${p}</li>`).join('');
+}
+function setupTerra() {
+  const box = $('#terraNode');
+  box.addEventListener('click', e => {
+    if (e.target.id === 'terraReset') { p2.terraPath = []; renderTerra(); $('#terraNode .btn').focus(); return; }
+    const b = e.target.closest('[data-next]'); if (!b) return;
+    p2.terraPath.push(b.dataset.label);
+    renderTerra(b.dataset.next);
+    const first = $('#terraNode .btn'); if (first) first.focus();
+  });
+  renderTerra();
+}
+
+/* ---------- Revelado al hacer scroll (transición entre secciones) ---------- */
+function setupReveal() {
+  if (reducedMotion || !('IntersectionObserver' in window)) return;
+  const io = new IntersectionObserver(entries => entries.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { threshold: 0.08 });
+  document.querySelectorAll('.block .card, .step, .chart-scroll, .legend').forEach(el => {
+    el.classList.add('reveal'); io.observe(el);
+  });
+}
+
+/* ---------- Inicio ---------- */
+function init() {
+  renderChart(); observeChart(); bindBars();
+  renderRoleFilters(); renderZoneToggles(); syncZoneUI();
+  renderDetail(); setupRange(); setupNarration();
+  setupResolution(); setupNav();
+  // Fase 2
+  renderRoadmap(); setupRoadmap(); renderTeamRoles(); renderFlow();
+  setupGlmDemo(); setupTerra(); setupGlossary(); setupTooltips();
+  setupReveal();
+}
+init();
+</script>
+</body>
+</html>
+
