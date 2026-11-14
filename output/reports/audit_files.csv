@@ -1,0 +1,4 @@
+file,sensor,year,rows_in_group,invalid_time_file,duplicates_file,type_nonzero,low_conf,low_conf_pct,conf_unknown,frp_null,frp_p50,frp_p99,frp_max,out_of_peru,rows_clean,date_min,date_max,days_with_data,internal_missing_days,longest_gap_days,day_pass_median,day_pass_p10,day_pass_p90
+modis_2014_Peru.csv,Aqua,2014,8831,0,0,1,448,5.1,0,0,16.7,210.17,1928.3,0,8382,2014-01-01,2014-12-31,277,88,5,13:37,13:07,13:56
+viirs-snpp_2014_Peru.csv,SNPP,2014,57655,0,0,1327,3034,5.3,0,0,5.57,71.61,514.4,0,53387,2014-01-01,2014-12-31,363,2,1,13:39,13:02,14:16
+modis_2014_Peru.csv,Terra,2014,1846,0,0,9,147,8.0,0,0,14.0,134.11,635.8,0,1690,2014-01-01,2014-12-31,258,107,6,10:33,10:09,10:58
