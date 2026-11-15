@@ -18,6 +18,8 @@ El efecto fijo de semana absorbe la actividad real de fuego de cada semana; el c
       pocos días con detecciones porque no hay fuego, y filtrarlas sesgaría la razón.
     * VIIRS con days_with_data < MIN_TARGET_DAYS. VIIRS detecta algo en Perú casi todos los días,
       así que una semana incompleta es un apagón del satélite (p. ej. S-NPP jul-ago 2022).
+    * Semanas que se solapan con un apagón documentado de cualquiera de los dos sensores
+      (columna in_outage, definida en settings.yaml -> outages; p. ej. Aqua ago-sep 2020).
     * Semanas en que ambos sensores suman 0 (no aportan información sobre la razón).
 """
 
@@ -58,6 +60,10 @@ def paired_weeks(df_weekly: pd.DataFrame, years: list[int], metric: str,
     d = df_weekly[df_weekly["sensor"].isin([ref, target]) & df_weekly["iso_year"].isin(years)]
     min_days = d["sensor"].map({ref: 1, target: MIN_TARGET_DAYS})
     d = d[d["days_with_data"] >= min_days]
+    if "in_outage" in d.columns:
+        # Una semana con apagón documentado de cualquiera de los dos sensores se descarta entera.
+        bad_weeks = d.loc[d["in_outage"], "week"].unique()
+        d = d[~d["week"].isin(bad_weeks)]
     wide = d.pivot_table(index=["week", "iso_year", "month", "season"], columns="sensor",
                          values=metric, aggfunc="sum").dropna(subset=[ref, target])
     wide = wide.reset_index()

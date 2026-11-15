@@ -37,8 +37,11 @@ Este documento reúne las decisiones clave adoptadas para el diseño del pipelin
 - **Fundamento**: En 2002–2024, ago–sep concentran ~60–65 % de las detecciones y jul–oct ~85 %, con perfiles casi idénticos en Aqua, S-NPP y NOAA-20.
 
 ## 9. Filtro de Semanas para la Calibración
-- **Decisión**: Se excluyen semanas en que Aqua no tiene observaciones (`days_with_data == 0`) o en que VIIRS tiene menos de 6 días con datos (`MIN_TARGET_DAYS`).
-- **Fundamento**: VIIRS detecta algún fuego en Perú casi todos los días, así que una semana incompleta es un apagón del satélite (p. ej. S-NPP, fines de julio a mediados de agosto de 2022, cuando NOAA-20 siguió observando). Para Aqua no se exige más porque, en temporada baja, tener pocos días con detecciones refleja ausencia de fuego; filtrar esas semanas sesgaría la razón. La baja detección de Aqua en semanas pico (p. ej. agosto de 2020) se conserva: es un límite real del sensor (huecos entre barridos de MODIS en el trópico, humo), no un error de datos.
+- **Decisión**: Se excluyen (a) las semanas que se solapan con un apagón documentado por NASA (`settings.yaml` → `outages`, columna `in_outage`), (b) las semanas en que Aqua no tiene observaciones (`days_with_data == 0`) y (c) las semanas en que VIIRS tiene menos de 6 días con datos (`MIN_TARGET_DAYS`).
+- **Apagones documentados**:
+  - **Aqua, del 16 de agosto al 2 de septiembre de 2020.** Falló la unidad FMU del satélite y solo hubo cobertura parcial por *Direct Broadcast* (MODIS C6 Active Fire User's Guide, rev. C, sec. 7.2.4). Esto explica el desajuste de agosto de 2020: Aqua detectaba decenas de focos por día mientras S-NPP detectaba miles. Al excluir esas semanas, la correlación de 2020 sube de 0.74 a 0.97.
+  - **S-NPP, del 27 de julio al 10 de agosto de 2022** (VIIRS C2 Burned Area User's Guide v1.1, sec. 8.2).
+- **Fundamento**: VIIRS detecta algún fuego en Perú casi todos los días, así que una semana incompleta es un apagón. A Aqua no se le exigen más días porque, en temporada baja, tener pocos días con detecciones refleja ausencia de fuego. Para apagones no documentados se mantienen los filtros por `days_with_data`.
 
 ## 10. GLM con Efecto Fijo de Semana y Errores Agrupados
 - **Decisión**: `y ~ C(week_id) + viirs` (A) y `y ~ C(week_id) + viirs:C(season)` (B) sobre la tabla semanal nacional. Conteos con Poisson y FRP total con Tweedie (p = 1.5, enlace log). Errores estándar agrupados por semana. El factor es exp(β) con IC 95 %.
@@ -46,5 +49,12 @@ Este documento reúne las decisiones clave adoptadas para el diseño del pipelin
 
 ## 11. Selección del Modelo y Reajuste Final
 - **Decisión**: Se elige el modelo más simple salvo que uno más complejo reduzca el MAE semanal de validación (2018–2022) en más de 5 %. El modelo elegido se reajusta con 2012–2022 (`windows.final`).
-- **Fundamento**: El modelo B (por temporada) reduce el MAE de conteos de 369 a 314 (−15 %) y el error total del FRP de +15 % a +6 %. La razón VIIRS/Aqua es mayor en temporada baja (~8.8) que en temporada alta (~5.1), porque en temporada baja hay más focos pequeños que MODIS (1 km) no detecta. La ventana final termina en 2022 porque Aqua deriva de su órbita desde 2023 (hora de paso mediana de 13:51 en 2023 y 14:16 en 2024, frente a ~13:35 antes).
-- **Advertencia**: La banda IC 95 % del factor refleja la incertidumbre del factor, no el error de predicción semanal (cubre ~19 % de las semanas observadas). El año 2020 es el peor (corr. 0.74; error −12 %).
+- **Fundamento**: Tras excluir los apagones, en validación el modelo B reduce el MAE semanal de conteos de 316 a 262 (−17 %); el error total es +2.7 % y la correlación 0.98. La razón VIIRS/Aqua es mayor en temporada baja (~8.8) que en alta (~5.0), porque en temporada baja hay más focos pequeños que MODIS (1 km) no detecta. La ventana final termina en 2022 porque Aqua deriva de su órbita desde 2023 (hora de paso mediana de 13:51 en 2023 y 14:16 en 2024, frente a ~13:35 antes).
+- **Advertencias**:
+  - La banda IC 95 % refleja la incertidumbre del factor, no el error semanal: cubre ~18 % de las semanas observadas.
+  - El factor de FRP sobreestima en validación (+11 % en total), así que hay que presentarlo con cautela.
+
+## 12. Inconsistencia de `type` entre Versiones de MODIS (pendiente de corregir)
+- **Hallazgo**: Los CSV de FIRMS mezclan versiones de MODIS: `6.2` en 2002–2017, `6.03` en 2018–2022 y `61.03` (Colección 6.1) en 2023–2024. Desde la versión 03, el tipado de fuentes estáticas mejoró (MODIS C6 Fire User's Guide rev. C, sec. 5.5.2 y 7.2.3). Aqua marca `type=2/1` en ~1.8–2.3 % de sus focos desde 2018, pero en <0.5 % antes. VIIRS (versión 2) es consistente en todos los años (~2–3 %).
+- **Impacto**: Antes de 2018, ~1–1.5 % de las detecciones de Aqua con `type=0` están en ubicaciones que después se clasifican como estáticas: industria, volcanes, zonas urbanas. Esto infla levemente a Aqua en la calibración (2012–2017) frente a la validación (2018–2022), sesgando el factor ~1–2 % a la baja. Además deja puntos "eternos" en la climatología 2002–2011.
+- **Propuesta**: Construir una máscara de ubicaciones estáticas con todas las detecciones `type ∈ {1, 2}` de cualquier sensor y año, y excluirlas de todos los años en `cleaning.py`.

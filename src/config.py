@@ -57,6 +57,12 @@ SEASONS = _raw_settings.get("seasons", {
     "baja": [12, 1, 2, 3, 4, 5],
 })
 
+# Apagones documentados: sensor -> (inicio, fin) inclusivos, como texto AAAA-MM-DD
+OUTAGES = {
+    sensor: (str(span[0]), str(span[-1]))
+    for sensor, span in (_raw_settings.get("outages") or {}).items()
+}
+
 # Bounding Box Perú
 PERU_BBOX = _raw_settings.get("bbox", dict(lat_min=-18.5, lat_max=0.1, lon_min=-81.5, lon_max=-68.5))
 

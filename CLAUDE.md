@@ -44,7 +44,7 @@ Se ejecutan **desde la raíz**: `python src/cli.py <comando>`. Los módulos de `
 |---|---|---|
 | `audit [--years ...] [--all-years]` | Implementado | `output/reports/audit_*.csv`, `audit_*.png` (**versionados en git**: correrlo modifica archivos rastreados) |
 | `build [--years ...] [--all-years]` | Implementado | `output/interim/daily_cell_sensor`, `weekly_sensor`, `weekly_cell_sensor` (.parquet), `build_summary.csv` |
-| `calibrate` | Implementado (lee `output/interim/weekly_sensor`) | `output/processed/calibration_factors.csv`, `validation_*.csv`, `harmonization_factors.csv` (factor final), `calibration_summary.json`; `output/reports/calibration_validation.png` |
+| `calibrate` | Implementado (lee `output/interim/weekly_sensor`) | `output/processed/calibration_factors.csv`, `validation_metrics.csv`, `validation_monthly.csv`, `validation_noaa20_snpp.csv`, `harmonization_factors.csv` (factor final), `calibration_summary.json`; `output/reports/calibration_validation.png` |
 | `harmonize`, `climatology`, `export` | Vacíos (lanzan `NotImplementedError`) | — |
 
 Sin `--years` ni `--all-years`, ambos comandos usan `years.min`–`years.max` de `config/settings.yaml` (2012–2017). Para que los pasos posteriores tengan 2002–2024, ejecuta `build --all-years` (tarda ~1 min con los 43 archivos).
@@ -72,7 +72,7 @@ dataset/*.csv
   - `count` y `total_frp` excluyen la confianza baja; las variantes `*_with_low` la incluyen.
   - `cell` es `"{lat_c:.3f}_{lon_c:.3f}"`, con el centro de la celda.
   - `sensor` ∈ {Aqua, Terra, SNPP, NOAA20, NOAA21}; `family` ∈ {MODIS, VIIRS}.
-- **weekly_sensor** (semana × sensor, todo Perú): las métricas anteriores más `active_cells`, `days_with_data`, `week` (lunes), `iso_year`, `iso_week`, `month` y `season`.
+- **weekly_sensor** (semana × sensor, todo Perú): las métricas anteriores más `active_cells`, `days_with_data`, `week` (lunes), `iso_year`, `iso_week`, `month`, `season` e `in_outage` (True si la semana se solapa con un apagón de `settings.yaml` → `outages`).
 - **weekly_cell_sensor** (semana × celda × sensor): igual, pero con `active_days` en lugar de `active_cells`.
 - Reglas de las tablas semanales:
   - Usan la semana ISO en hora local. El `month` es el del jueves de la semana. Filtra las ventanas con `iso_year`.
@@ -89,20 +89,32 @@ dataset/*.csv
 6. En la serie única, marca 2002–2011 como "estimado" y 2012 en adelante como "VIIRS real".
 
 ## Estado actual y pendientes
-- Hecho: ingesta, limpieza, auditoría, agregación diaria y semanal, y calibración GLM (detalles en las decisiones 7–11 de `docs/decisiones.md`).
-- Resultado de la calibración (conteos, tabla nacional): el modelo elegido es **B (por temporada)**. Factores finales 2012–2022: alta ≈ 5.15, media ≈ 6.69, baja ≈ 8.84. FRP: 1.84 / 2.23 / 2.92. Validación 2018–2022: error total −1.3 %, corr 0.91, MAE relativo 22 %. 2020 es el peor año: los picos de agosto que Aqua detecta mal son un límite del sensor, no un error de datos.
-- `calibration.paired_weeks` excluye las semanas con Aqua sin datos o con VIIRS < `MIN_TARGET_DAYS` (6) días. Los apagones de S-NPP (jul–ago 2022, jul 2024) caen ahí; en el futuro se podrían rellenar con NOAA-20.
+- Hecho: ingesta, limpieza, auditoría, agregación diaria y semanal, y calibración GLM (detalles en las decisiones 7–12 de `docs/decisiones.md`).
+- Parámetros de `calibration.py`: referencia `Aqua`, objetivo `SNPP`; Poisson para conteos y Tweedie (var_power 1.5) para FRP; errores agrupados por semana; `MIN_TARGET_DAYS = 6`; `MIN_IMPROVEMENT_PCT = 5.0`. NOAA-20 no entra al GLM: solo se usa como control (`validation_noaa20_snpp.csv`).
+- Resultado de la calibración (conteos, tabla nacional): el modelo elegido es **B (por temporada)**. Factores finales 2012–2022: alta ≈ 4.98, media ≈ 6.69, baja ≈ 8.84. FRP: 1.78 / 2.23 / 2.92. Validación 2018–2022: error total +2.7 %, corr 0.98, MAE relativo 20 %. En FRP el modelo sobreestima ~+11 % en validación (menos fiable que los conteos). Excluir el apagón de Aqua subió la correlación de 2020 de 0.74 a 0.97.
+- `calibration.paired_weeks` excluye:
+  - las semanas con `in_outage`, que vienen de apagones documentados en `settings.yaml` → `outages`: Aqua del 16-ago al 2-sep-2020 (falla del FMU) y S-NPP del 27-jul al 10-ago-2022;
+  - las semanas con Aqua sin datos;
+  - las semanas con VIIRS < `MIN_TARGET_DAYS` (6) días.
+- **Fuentes**: guías de usuario NASA que nos pasó el usuario: MODIS C6 Active Fire rev. B/C y VIIRS C2 Burned Area v1.1. Puntos relevantes:
+  - Confianza MODIS: <30 baja, 30–79 nominal, ≥80 alta (coincide con `cleaning.py`).
+  - `type`: 0 vegetación, 1 volcán, 2 fuente estática, 3 offshore.
+  - Las series de MODIS con intervalos < ~8 días tienen sesgo de muestreo (por eso trabajamos por semana).
+  - Los datos NRT no sirven para series largas. Los CSV descargados son todos estándar, no NRT.
+- **Versiones mezcladas de MODIS en FIRMS** (decisión 12): `6.2` en 2002–2017, `6.03` en 2018–2022 y `61.03` en 2023–24. El tipado de fuentes estáticas mejora desde 2018, así que antes de 2018 hay ~1–2 % de fuentes estáticas contadas como vegetación. Pendiente: aplicar una máscara de ubicaciones estáticas a todos los años.
+- **S-NPP dejó de entregar datos el 2-nov-2026 a las 15:40 UTC** (blog Earthdata/LANCE, nov-2026). La serie VIIRS "real" debe continuar con NOAA-20 (y NOAA-21). NOAA-20/S-NPP ≈ 1.00 (0.92–1.05 por año) en 2018–2024, lo que respalda el empalme.
 - Referencias (2012–2017, Perú, conteos limpios):
   - S-NPP/Aqua ≈ 5.1–6.4 por año (≈ 5.76 en el agregado semanal).
   - Terra/Aqua ≈ 0.18–0.27.
   - Aqua y S-NPP pasan a ~13:30 todos los años; Terra a ~10:30.
 - Pendiente, en orden:
-  1. `harmonize.apply_harmonization`: Aqua 2002–2011 × factor de temporada a partir de `harmonization_factors.csv`, con bandas IC, más VIIRS real desde 2012.
-  2. `climatology` (mediana y percentiles por semana del año, anomalías).
-  3. `export_web` (JSON/CSV para el frontend).
-  4. Conectar los comandos en `cli.py`.
+  1. Máscara de fuentes estáticas en `cleaning.py`: excluir en todos los años las ubicaciones marcadas alguna vez como `type` 1 o 2 (por cualquier sensor). Después, volver a correr `build --all-years` y `calibrate`, y actualizar la decisión 12.
+  2. `harmonize.apply_harmonization`: Aqua 2002–2011 × factor de temporada a partir de `harmonization_factors.csv`, con bandas IC, más VIIRS real desde 2012 (S-NPP, rellenando sus huecos y el período posterior al 2-nov-2026 con NOAA-20). Incluir una columna `fuente` ∈ {estimado, S-NPP, NOAA-20}.
+  3. `climatology` (mediana y percentiles por semana del año, anomalías).
+  4. `export_web` (JSON/CSV para el frontend).
+  5. Conectar los comandos en `cli.py`.
 - Sin definir todavía: la variable **zona** del modelo C (p. ej., Andes/Amazonía) y el **recorte del AOI de Cusco**.
-- Los datos de 2025 ya están en el archivo de FIRMS, pero aún no se descargaron (lo descargado llega hasta 2024). El explainer menciona que S-NPP termina el 2-nov-2026; está por verificar.
+- Los datos de 2025 ya están en el archivo de FIRMS, pero aún no se descargaron (lo descargado llega hasta 2024). S-NPP terminó el 2-nov-2026 (verificado).
 
 ## Equipo y convenciones de git
 - Hay 5 personas, cada una dueña de un grupo de módulos (ver la sección 5 del README) para evitar conflictos de git. Mantén las firmas de las funciones stub, porque son los contratos entre integrantes.

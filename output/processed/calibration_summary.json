@@ -73,19 +73,19 @@
     "B_count": {
       "formula": "y ~ C(week_id) + viirs:C(season)",
       "family": "poisson",
-      "n_obs": 1132,
-      "n_weeks": 566,
-      "pearson_dispersion": 13.838862154247995,
-      "aic": 18055.53987800376,
+      "n_obs": 1124,
+      "n_weeks": 562,
+      "pearson_dispersion": 9.741128574096994,
+      "aic": 14709.407678424386,
       "converged": true
     },
     "B_total_frp": {
       "formula": "y ~ C(week_id) + viirs:C(season)",
       "family": "tweedie",
-      "n_obs": 1132,
-      "n_weeks": 566,
-      "pearson_dispersion": 4.6480216734443625,
-      "aic": 18945.450260554288,
+      "n_obs": 1124,
+      "n_weeks": 562,
+      "pearson_dispersion": 4.054899284943843,
+      "aic": 18607.309205318015,
       "converged": true
     }
   }

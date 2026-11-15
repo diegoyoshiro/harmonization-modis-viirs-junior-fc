@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import SEASONS
+from config import OUTAGES, SEASONS
 from io_firms import load
 
 METRICS = ["count", "count_with_low", "total_frp", "total_frp_with_low"]
@@ -126,6 +126,16 @@ def _add_calendar(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _in_outage(df: pd.DataFrame) -> pd.Series:
+    """True si la semana (lunes-domingo) se solapa con un apagón documentado del sensor (OUTAGES)."""
+    flag = pd.Series(False, index=df.index)
+    week_end = df["week"] + pd.Timedelta(days=6)
+    for sensor, (start, end) in OUTAGES.items():
+        overlap = (df["week"] <= pd.Timestamp(end)) & (week_end >= pd.Timestamp(start))
+        flag |= df["sensor"].eq(sensor) & overlap
+    return flag
+
+
 def _sensor_weeks(d: pd.DataFrame) -> pd.DataFrame:
     """
     Semanas en que cada sensor está operativo (de su primera a su última semana con datos)
@@ -190,5 +200,6 @@ def aggregate_weekly(df_daily: pd.DataFrame, level: str = "national") -> pd.Data
         cols = ["week", "cell", "lat_c", "lon_c", "sensor", "family"]
 
     out = _add_calendar(out)
+    out["in_outage"] = _in_outage(out)
     order = cols + [c for c in out.columns if c not in cols]
     return out[order].sort_values(cols).reset_index(drop=True)
