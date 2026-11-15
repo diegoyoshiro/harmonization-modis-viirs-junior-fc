@@ -8,7 +8,16 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from config import CELL_SIZE, UTC_OFFSET_HOURS
+from config import CELL_SIZE, FINE_CELL_FROM_YEAR, FINE_CELL_SIZE, UTC_OFFSET_HOURS
+
+# Columnas espaciales de las tablas por celda (malla única de resolución variable):
+#   cell, lat_c, lon_c        celda del mapa: 0.25° antes de FINE_CELL_FROM_YEAR y 0.1° desde ese año
+#   cell_deg                  tamaño de esa celda en grados (0.25 o 0.1): diferencia las dos épocas
+#   cell_025, lat_025, lon_025 celda de análisis de 0.25° (todos los años). Las áreas (Cusco) y la
+#                             climatología se suman con ella, para que 2002-2011 y 2012+ tengan los mismos bordes.
+# Una celda de 0.1° que cruza el borde de una de 0.25° se parte en dos filas (una por celda de 0.25°), así
+# que sumar por cell da el total exacto de la celda del mapa y sumar por cell_025, el de la celda de análisis.
+CELL_COLS = ["cell", "lat_c", "lon_c", "cell_deg", "cell_025", "lat_025", "lon_025"]
 
 
 def confidence_to_category(series: pd.Series, is_modis: bool) -> pd.Series:
@@ -73,17 +82,33 @@ def standardize(df: pd.DataFrame, info: dict, stats: dict) -> pd.DataFrame:
         df["type_num"] = np.nan
     df["is_veg"] = df["type_num"].fillna(0).eq(0)
 
+    # Producto: Near Real-Time (version "2.0NRT", "6.1NRT", ...) vs estándar. El NRT es preliminar:
+    # FIRMS lo reemplaza por el estándar con meses de retraso.
+    if "version" in df.columns:
+        df["is_nrt"] = df["version"].astype(str).str.upper().str.contains("NRT", regex=False)
+    else:
+        df["is_nrt"] = False
+
     # Confianza
     df["confidence_cat"] = confidence_to_category(df["confidence"], info["family"] == "MODIS")
     df["is_low"] = df["confidence_cat"].eq("low")
 
-    # Celda 0,25° (se guarda el CENTRO)
-    i = np.floor(df["latitude"] / CELL_SIZE)
-    j = np.floor(df["longitude"] / CELL_SIZE)
-    df["lat_c"] = ((i + 0.5) * CELL_SIZE).round(4)
-    df["lon_c"] = ((j + 0.5) * CELL_SIZE).round(4)
-    df["cell"] = df["lat_c"].map("{:.3f}".format) + "_" + df["lon_c"].map("{:.3f}".format)
+    # Celdas (se guarda el CENTRO). Ver CELL_COLS.
+    df["lat_025"], df["lon_025"], df["cell_025"] = assign_cell(df["latitude"], df["longitude"], CELL_SIZE)
+    lat_f, lon_f, cell_f = assign_cell(df["latitude"], df["longitude"], FINE_CELL_SIZE)
+    fine = df["local_date"].dt.year >= FINE_CELL_FROM_YEAR
+    df["cell_deg"] = np.where(fine, FINE_CELL_SIZE, CELL_SIZE)
+    df["lat_c"] = lat_f.where(fine, df["lat_025"])
+    df["lon_c"] = lon_f.where(fine, df["lon_025"])
+    df["cell"] = cell_f.where(fine, df["cell_025"])
     return df
+
+
+def assign_cell(lat: pd.Series, lon: pd.Series, size: float) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Centro (lat_c, lon_c) e id "{lat_c:.3f}_{lon_c:.3f}" de la celda de `size` grados de cada punto."""
+    lat_c = ((np.floor(lat / size) + 0.5) * size).round(4)
+    lon_c = ((np.floor(lon / size) + 0.5) * size).round(4)
+    return lat_c, lon_c, lat_c.map("{:.3f}".format) + "_" + lon_c.map("{:.3f}".format)
 
 
 # --- Máscara de fuentes estáticas (decisión 12) ---------------------------------------------

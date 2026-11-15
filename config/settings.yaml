@@ -21,7 +21,9 @@ windows:                     # ventanas documentadas para calibración y validac
 
 processing:
   utc_offset_hours: -5
-  cell_size_deg: 0.25
+  cell_size_deg: 0.25         # celda de análisis (~28 km): columna cell_025, todos los años; áreas y climatología se suman en ella
+  fine_cell_size_deg: 0.1     # celda del mapa (~11 km) desde fine_cell_from_year (era VIIRS 375 m); antes, la de 0.25°
+  fine_cell_from_year: 2012   # desde el 1-ene de este año (fecha local)
 
 seasons:                     # temporada de quema por mes (mes del jueves de la semana ISO)
   alta: [8, 9]               # ago-sep: ~60-65 % de las detecciones 2002-2024

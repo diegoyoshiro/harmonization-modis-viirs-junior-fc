@@ -11,11 +11,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from cleaning import build_static_mask, static_mask_keys
+from cleaning import CELL_COLS, build_static_mask, static_mask_keys
 from config import OUTAGES, SEASONS, STATIC_MASK
 from io_firms import collect_static_points, load
 
-METRICS = ["count", "count_with_low", "total_frp", "total_frp_with_low"]
+# nrt_count: detecciones (con baja confianza) del producto NRT, preliminar. No es una métrica de fuego:
+# solo sirve para saber qué días/semanas son preliminares (harmonize.nrt_start).
+METRICS = ["count", "count_with_low", "total_frp", "total_frp_with_low", "nrt_count"]
 
 
 def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
@@ -31,15 +33,17 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
         keep = keep & ~df["is_static_loc"]
     d = df[keep].copy()
     d["count_ok"] = (~d["is_low"]).astype(int)
+    d["nrt"] = d["is_nrt"].astype(int) if "is_nrt" in d else 0
     d["frp_ok"] = d["frp"].where(~d["is_low"], 0.0)
     out = d.groupby(
-        ["local_date", "cell", "lat_c", "lon_c", "sensor", "family"],
+        ["local_date", *CELL_COLS, "sensor", "family"],
         as_index=False
     ).agg(
         count=("count_ok", "sum"),
         count_with_low=("frp", "size"),
         total_frp=("frp_ok", "sum"),
         total_frp_with_low=("frp", "sum"),
+        nrt_count=("nrt", "sum"),
     )
     return out
 
@@ -91,7 +95,7 @@ def run_build(files: list[dict], out_dir: Path, mask_files: list[dict] | None = 
         sys.exit("No se pudo procesar ningún archivo.")
     result = pd.concat(parts, ignore_index=True)
     # Un archivo anual puede traer días del año vecino por el cambio UTC -> local: se reagrupa.
-    keys = ["local_date", "cell", "lat_c", "lon_c", "sensor", "family"]
+    keys = ["local_date", *CELL_COLS, "sensor", "family"]
     result = result.groupby(keys, as_index=False).sum(numeric_only=True)
     result = result.sort_values(["local_date", "sensor", "cell"]).reset_index(drop=True)
 
@@ -209,24 +213,25 @@ def aggregate_weekly(df_daily: pd.DataFrame, level: str = "national") -> pd.Data
 
     if level == "national":
         agg = d.groupby(["week", "sensor"], as_index=False)[METRICS].sum()
-        active = (d[d["count"] > 0].groupby(["week", "sensor"])["cell"].nunique()
+        # Celdas activas en la malla de análisis (0.25°) para que el valor sea comparable entre épocas
+        active = (d[d["count"] > 0].groupby(["week", "sensor"])["cell_025"].nunique()
                   .rename("active_cells").reset_index())
         out = (sensor_weeks.merge(agg, on=["week", "sensor"], how="left")
                .merge(active, on=["week", "sensor"], how="left"))
         out[METRICS + ["active_cells"]] = out[METRICS + ["active_cells"]].fillna(0)
-        out = out.astype({"count": int, "count_with_low": int, "active_cells": int})
+        out = out.astype({"count": int, "count_with_low": int, "nrt_count": int, "active_cells": int})
         cols = ["week", "sensor", "family"]
     else:
-        keys = ["week", "cell", "lat_c", "lon_c", "sensor"]
+        keys = ["week", *CELL_COLS, "sensor"]
         d["active_day"] = (d["count"] > 0).astype(int)
         agg = (d.groupby(keys, as_index=False)[METRICS + ["active_day"]].sum()
                .rename(columns={"active_day": "active_days"}))
-        cells = d[["week", "cell", "lat_c", "lon_c"]].drop_duplicates()
+        cells = d[["week", *CELL_COLS]].drop_duplicates()
         grid = cells.merge(sensor_weeks, on="week", how="inner")
         out = grid.merge(agg, on=keys, how="left")
         out[METRICS + ["active_days"]] = out[METRICS + ["active_days"]].fillna(0)
-        out = out.astype({"count": int, "count_with_low": int, "active_days": int})
-        cols = ["week", "cell", "lat_c", "lon_c", "sensor", "family"]
+        out = out.astype({"count": int, "count_with_low": int, "nrt_count": int, "active_days": int})
+        cols = ["week", *CELL_COLS, "sensor", "family"]
 
     out = _add_calendar(out)
     out["in_outage"] = _in_outage(out)

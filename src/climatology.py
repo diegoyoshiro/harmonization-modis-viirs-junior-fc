@@ -59,18 +59,22 @@ def monthly_frame(monthly: pd.DataFrame) -> pd.DataFrame:
 def region_monthly(monthly_cell: pd.DataFrame, monthly_national: pd.DataFrame,
                    bbox: list[float]) -> pd.DataFrame:
     """
-    Serie mensual de un área: suma de las celdas cuyo centro cae en bbox = [lat_min, lat_max, lon_min,
-    lon_max]. Los meses sin focos en el área son ceros explícitos; la calidad/fuente es la nacional.
+    Serie mensual de un área: suma de las celdas de análisis (0.25°, lat_025/lon_025) cuyo centro cae en
+    bbox = [lat_min, lat_max, lon_min, lon_max]. Se usa la celda de 0.25° y no la del mapa (0.1° desde
+    2012) para que el área tenga los mismos bordes en todos los años. Los meses sin focos en el área son
+    ceros explícitos; la calidad/fuente es la nacional.
     """
     lat_min, lat_max, lon_min, lon_max = bbox
-    c = monthly_cell[monthly_cell["lat_c"].between(lat_min, lat_max)
-                     & monthly_cell["lon_c"].between(lon_min, lon_max)]
+    lat, lon = ("lat_025", "lon_025") if "lat_025" in monthly_cell else ("lat_c", "lon_c")
+    c = monthly_cell[monthly_cell[lat].between(lat_min, lat_max)
+                     & monthly_cell[lon].between(lon_min, lon_max)]
     tot = c.groupby(["year", "month"], as_index=False)[["count", "frp"]].sum()
-    base = monthly_national[["year", "month", "season", "tramo", "fuente", "calidad", "dias_mes", "dias",
-                             "dias_estimado", "dias_sin_dato"]]
+    base_cols = ["year", "month", "season", "tramo", "fuente", "calidad", "preliminar", "dias_mes", "dias",
+                 "dias_estimado", "dias_sin_dato", "dias_preliminar"]
+    base = monthly_national[[c for c in base_cols if c in monthly_national]]
     out = base.merge(tot, on=["year", "month"], how="left")
     out[["count", "frp"]] = out[["count", "frp"]].fillna(0.0)
-    out.attrs["n_cells"] = int(c["cell"].nunique())
+    out.attrs["n_cells"] = int(c["cell_025" if "cell_025" in c else "cell"].nunique())
     return out
 
 
@@ -170,6 +174,7 @@ def annual_ranking(monthly: pd.DataFrame, baseline_years: list[int]) -> pd.DataF
         complete = len(g) == 12 and bool(_usable(g, "count").all())
         peak = g.loc[g["count"].idxmax()]
         row = {"year": int(year), "tramo": g["tramo"].iloc[0], "completo": bool(complete),
+               "preliminar": bool(g["preliminar"].any()) if "preliminar" in g else False,
                "count": float(g["count"].sum()), "frp": float(g["frp"].sum()),
                "mes_pico": int(peak["month"]), "count_mes_pico": float(peak["count"]),
                "pct_en_ago_sep": float(100 * g.loc[g["month"].isin([8, 9]), "count"].sum() / g["count"].sum())}
@@ -201,8 +206,14 @@ def plot_calendar(anom: pd.DataFrame, ranking: pd.DataFrame, title: str, path: P
     cats = anom.pivot(index="year", columns="month", values="categoria").reindex(index=years, columns=range(1, 13))
     unc = (anom.pivot(index="year", columns="month", values="categoria_incierta")
                .reindex(index=years, columns=range(1, 13)) if "categoria_incierta" in anom else None)
+    prel = (anom.pivot(index="year", columns="month", values="preliminar")
+                .reindex(index=years, columns=range(1, 13)) if "preliminar" in anom else None)
     tramo = anom.drop_duplicates("year").set_index("year")["tramo"]
-    labels = [f"{y}{' *' if tramo.get(y) == 'estimado' else ''}" for y in years]
+    prel_years = set(anom.loc[anom["preliminar"].fillna(False).astype(bool), "year"]) if prel is not None else set()
+    labels = [f"{y}{' *' if tramo.get(y) == 'estimado' else ''}{' p' if y in prel_years else ''}" for y in years]
+
+    def _is_prel(i, j):
+        return prel is not None and bool(prel.iloc[i, j] == True)  # noqa: E712 (celdas NaN -> False)
 
     fig, axes = plt.subplots(1, 3, figsize=(17, 0.36 * len(years) + 2.8),
                              gridspec_kw={"width_ratios": [12, 12, 4]})
@@ -215,6 +226,7 @@ def plot_calendar(anom: pd.DataFrame, ranking: pd.DataFrame, title: str, path: P
             if np.isnan(val):
                 continue
             txt = f"{val / 1000:.1f}k" if val >= 1000 else f"{val:.0f}"
+            txt += "p" if _is_prel(i, j) else ""
             ax.text(j, i, txt, ha="center", va="center", fontsize=6.5,
                     color="white" if val > vmax ** 0.6 else "black")
     ax.set_title("Focos por mes (unidades VIIRS)")
@@ -229,12 +241,16 @@ def plot_calendar(anom: pd.DataFrame, ranking: pd.DataFrame, title: str, path: P
     for i in range(len(years)):
         for j in range(12):
             p, c = pct.iloc[i, j], cats.iloc[i, j]
+            if _is_prel(i, j):  # contorno punteado: dato NRT preliminar
+                ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, ec="k", lw=1.0, ls=(0, (2, 1.5))))
             if c == NO_DATA or np.isnan(p):
                 continue
             mark = "?" if unc is not None and bool(unc.iloc[i, j]) else ""
+            mark += "p" if _is_prel(i, j) else ""
             ax.text(j, i, f"{p:.0f}{mark}", ha="center", va="center", fontsize=6.5,
                     color="white" if c in ("muy por debajo", "muy por encima", "máximo histórico") else "black")
-    ax.set_title("Anomalía: percentil del mes en la línea base (? = la banda cambia la categoría)")
+    ax.set_title("Anomalía: percentil del mes en la línea base (? = la banda cambia la categoría; "
+                 "p y borde punteado = preliminar NRT)", fontsize=10)
     ax.legend(handles=[Patch(color=CATEGORY_COLORS[c], label=c) for c in order], loc="upper center",
               bbox_to_anchor=(0.5, -0.03), ncol=4, fontsize=7.5, frameon=False)
 
@@ -262,7 +278,8 @@ def plot_calendar(anom: pd.DataFrame, ranking: pd.DataFrame, title: str, path: P
     ax.set_title("Total anual y puesto")
     ax.tick_params(axis="x", labelsize=7)
 
-    fig.suptitle(f"{title}  ·  * = estimado (Aqua × factor), resto VIIRS real", fontsize=12)
+    fig.suptitle(f"{title}  ·  * = estimado (Aqua × factor), resto VIIRS real  ·  p = preliminar (NRT)",
+                 fontsize=12)
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)
@@ -283,6 +300,14 @@ def plot_weekly_climatology(anom_w: pd.DataFrame, baseline_w: pd.DataFrame, year
     palette = ["#e66101", "#5e3c99", "#1b9e77", "#d95f02"]
     for color, y in zip(palette, years_to_show):
         g = anom_w[anom_w["year"] == y].sort_values("period")
+        if "preliminar" in g and g["preliminar"].any():
+            # Tramo NRT punteado; se repite la última semana definitiva para que la línea no se corte
+            pm = g["preliminar"].fillna(False).astype(bool).to_numpy()
+            first = int(np.argmax(pm))
+            ax.plot(g["period"].iloc[:first + 1], g["count"].iloc[:first + 1], color=color, lw=1.4, label=str(y))
+            ax.plot(g["period"].iloc[max(first - 1, 0):], g["count"].iloc[max(first - 1, 0):], color=color, lw=1.4,
+                    ls=(0, (3, 2)), label=f"{y} preliminar (NRT)")
+            continue
         ax.plot(g["period"], g["count"], color=color, lw=1.4, label=str(y))
     starts = pd.date_range("2024-01-01", periods=12, freq="MS")  # 2024: el 1-ene cae en la semana ISO 1
     ax.set_xticks(starts.isocalendar().week.clip(upper=52).to_numpy())

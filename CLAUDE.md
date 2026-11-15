@@ -15,7 +15,7 @@ pip install -r requirements.txt pyarrow   # incluye statsmodels; pyarrow es opci
 $env:PYTHONIOENCODING="utf-8"        # evita errores de acentos en la consola de Windows
 ```
 
-### Datos crudos (`dataset/`, ignorado por git)
+### Datos crudos (`dataset/`, **versionado en git** desde nov-2026: 47 CSV)
 Son los CSV anuales por país del archivo público de FIRMS. Se descargan sin autenticación:
 ```
 https://firms.modaps.eosdis.nasa.gov/data/country/{fuente}/{AAAA}/{fuente}_{AAAA}_Peru.csv
@@ -32,9 +32,31 @@ Ejemplo en Git Bash:
 B=https://firms.modaps.eosdis.nasa.gov/data/country
 mkdir -p dataset/{modis,snpp,noaa20}
 for y in $(seq 2002 2024); do curl -sf -o dataset/modis/modis_${y}_Peru.csv $B/modis/$y/modis_${y}_Peru.csv; done
-for y in $(seq 2012 2024); do curl -sf -o dataset/snpp/viirs-snpp_${y}_Peru.csv $B/viirs-snpp/$y/viirs-snpp_${y}_Peru.csv; done
-for y in $(seq 2018 2024); do curl -sf -o dataset/noaa20/viirs-jpss1_${y}_Peru.csv $B/viirs-jpss1/$y/viirs-jpss1_${y}_Peru.csv; done
+for y in $(seq 2012 2026); do curl -sf -o dataset/snpp/viirs-snpp_${y}_Peru.csv $B/viirs-snpp/$y/viirs-snpp_${y}_Peru.csv; done
+for y in $(seq 2018 2026); do curl -sf -o dataset/noaa20/viirs-jpss1_${y}_Peru.csv $B/viirs-jpss1/$y/viirs-jpss1_${y}_Peru.csv; done
 ```
+**Lo descargado hoy:** MODIS 2002–2024; S-NPP 2012–2026; NOAA-20 2018–2026. No hay MODIS 2025–2026, así que desde 2025 la serie es solo VIIRS (no hay Aqua para rellenar huecos).
+
+#### Datos NRT de 2026 (preliminares)
+El CSV del año en curso mezcla dos productos. Se distinguen con la columna **`version`** del CSV:
+| archivo | `version = 2` (estándar) | `version = 2.0NRT` (Near Real-Time) |
+|---|---|---|
+| `viirs-snpp_2026_Peru.csv` | 01-ene al 31-jul-2026 (11 349 filas) | 01-ago al 01-nov-2026 (43 565 filas; S-NPP terminó el 2-nov) |
+| `viirs-jpss1_2026_Peru.csv` | 01-ene al 31-jul-2026 (12 648 filas) | 01-ago al 15-nov-2026 (44 767 filas) |
+
+- El NRT se publica a las ~3 h, con geolocalización y calibración provisionales. FIRMS lo reemplaza por el estándar con meses de retraso, así que estos valores **cambiarán** cuando se vuelva a descargar el CSV.
+- **Regla: toda semana, mes o celda que incluya al menos un día NRT es `preliminar`** en las salidas de `harmonize`, `climatology` y `export`.
+  - Se marca con un booleano aparte, `preliminar`, no con un nuevo valor de `calidad`: una semana puede ser `ok` y `preliminar` a la vez.
+  - El criterio es el producto (`version` contiene `NRT`), no una fecha fija. Así la marca se mueve sola cuando FIRMS reemplace el NRT por el estándar.
+  - El NRT **nunca entra** en la calibración (ventanas ≤ 2022) ni en la línea base de la climatología (2003–2024). Solo se muestra, con su anomalía frente a la línea base, marcado como preliminar.
+  - Nov-2026 es además un mes incompleto (S-NPP hasta el día 1, NOAA-20 hasta el 15), así que su `calidad` es `incompleto`.
+- **Implementado** (nov-2026):
+  1. `cleaning.standardize`: `is_nrt` = `version` contiene `NRT`.
+  2. `aggregate`: columna `nrt_count` (detecciones NRT, con baja confianza) en la tabla diaria y en las semanales. Está en `aggregate.METRICS` solo para sumarse; no es una métrica de fuego.
+  3. `harmonize.nrt_start`: primer día con NRT de cada sensor (hoy S-NPP y NOAA-20, 2026-08-01). Desde ese día todo lo del sensor es preliminar, aunque algún día no tenga focos. Columnas `preliminar` en `harmonized_weekly` (y `_cell`; la semana toca el tramo NRT del sensor usado), `preliminar` + `dias_preliminar` en `harmonized_monthly` (y `_cell`), `weeks_preliminar` en `harmonized_annual`, y `nrt_inicio` + `semanas_preliminares` en `harmonize_summary.json`. Hoy son 15 semanas (2026-07-27 a 2026-11-02) y 4 meses (ago–nov-2026).
+  4. `climatology`: la marca pasa a `anomalies_*`, a las áreas (`region_monthly`) y a `annual_ranking` (`preliminar` del año). En `calendar_*.png`, los meses llevan una "p" y un borde punteado, y el año, " p". En `climatology_weekly_peru.png`, el tramo NRT va punteado.
+  5. `export` (esquema 1.2): `preliminar` en `calendar_*`, `series_weekly_*` y `ranking_*`; `dias_preliminar` en el calendario; `preliminar_meses` en `cells_{AAAA}.json`; bloque `preliminar` en `meta.json`; `meses_preliminares` en `regional_summary.csv`.
+  - La marca no cambia ningún valor: la serie es idéntica con y sin ella.
 `io_firms.find_files` reconoce los nombres con la regex `^{prefijo}_(\d{4})_peru\.csv$` (sin distinguir mayúsculas). Una carpeta obligatoria (modis, snpp) que falte detiene el programa; las de NOAA se omiten con un aviso.
 
 ## Comandos
@@ -43,7 +65,7 @@ Se ejecutan **desde la raíz**: `python src/cli.py <comando>`. Los módulos de `
 | Comando | Estado | Salidas |
 |---|---|---|
 | `audit [--years ...] [--all-years]` | Implementado | `output/reports/audit_*.csv`, `audit_*.png` (**versionados en git**: correrlo modifica archivos rastreados) |
-| `build [--years ...] [--all-years]` | Implementado | `output/interim/static_mask`, `daily_cell_sensor`, `weekly_sensor`, `weekly_cell_sensor` (.parquet), `build_summary.csv` |
+| `build [--years ...] [--all-years]` | Implementado | `output/interim/static_mask`, `daily_cell_sensor`, `weekly_sensor`, `weekly_cell_sensor` (.parquet; malla de resolución variable, ver abajo), `build_summary.csv` |
 | `calibrate` | Implementado (lee `output/interim/weekly_sensor`) | `output/processed/calibration_factors.csv`, `validation_metrics.csv`, `validation_by_year.csv`, `validation_monthly.csv`, `validation_noaa20_snpp.csv`, `harmonization_factors.csv` (factor final), `calibration_summary.json`; `output/reports/calibration_validation.png` |
 | `validate` | Implementado (lee `calibration_factors.csv` y `weekly_sensor`) | Rehace solo las tablas `validation_*.csv` |
 | `harmonize` | Implementado (lee `weekly_sensor`, `weekly_cell_sensor` y los factores de `calibrate`) | `output/processed/harmonized_weekly.csv` (serie única nacional), `harmonized_weekly_cell` (.parquet), `harmonized_annual.csv`, `harmonization_bands.csv`, `harmonization_backcast_check.csv`, `harmonize_summary.json`, `prediction_vs_snpp_*.csv` (MODIS × factor vs S-NPP 2012–2024), `harmonized_monthly.csv` + `harmonized_monthly_cell` (serie mensual desde la tabla diaria) y `harmonization_bands_monthly.csv`; `output/reports/harmonized_series.png`, `prediction_vs_snpp.png` |
@@ -75,6 +97,14 @@ dataset/*.csv
 - [explainer/index.html](explainer/index.html): página educativa que funciona como **hoja de ruta**. El array `STEPS` (pasos 0–9) describe objetivo, entradas, salidas, errores típicos y código orientativo de cada etapa (GLM con statsmodels, validación, aplicación del factor, serie única, climatología). Consúltalo antes de implementar un stub.
 
 ### Esquemas de las tablas intermedias
+- **Malla única de resolución variable** (`settings.yaml` → `processing`; columnas en `cleaning.CELL_COLS`). Todas las tablas por celda (`daily_cell_sensor`, `weekly_cell_sensor`, `harmonized_*_cell`) llevan:
+  - `cell`, `lat_c`, `lon_c`: la **celda del mapa**. Mide `cell_size_deg` = 0.25° (~28 km) antes de 2012 y `fine_cell_size_deg` = 0.1° (~11 km) desde el 1-ene de `fine_cell_from_year` = 2012 (fecha local; la era VIIRS 375 m). Se aplica a todos los sensores, también a Aqua desde 2012.
+  - `cell_deg` (0.25 o 0.1): **distingue las dos épocas**. Los ids no chocan: los centros de 0.25° terminan en .125/.375/.625/.875 y los de 0.1°, en .x5.
+  - `cell_025`, `lat_025`, `lon_025`: la **celda de análisis de 0.25°**, en todos los años. Las áreas (Cusco, `climatology.region_monthly`) se suman con su centro, para que 2002–2011 y 2012+ tengan los mismos bordes. `active_cells` de `weekly_sensor` también la usa.
+  - Como 0.1 no divide a 0.25, una celda de 0.1° que cruza el borde de una de 0.25° se **parte en dos filas** (2165 de las 8095 celdas finas de 2012–2026). Sumar por `cell` da el total exacto de la celda del mapa; sumar por `cell_025`, el de la celda de análisis. El total nacional no cambia.
+  - Comprobado: la suma por `cell_025` reproduce la tabla anterior de 0.25° (salvo los 41 focos de las 4 celdas nuevas de la máscara); suma de celdas = total nacional en las tablas semanal y mensual; Cusco: 0 de 270 meses cambian de categoría.
+  - Cuidado al comparar celdas entre 2011 y 2012: una de 0.25° tiene 6.25 veces el área de una de 0.1°. En el mapa conviene mostrar densidad (focos/100 km²).
+  - Con la malla fina, `weekly_cell_sensor` pasa de 0.87 a 1.83 M filas y los `cells_{AAAA}.json` de 2012+ pesan ~300 KB cada uno (en total, ~6 MB para el mapa).
 - **static_mask**: `key, lat_c, lon_c, n_years, n_detections, sensors, types`. Una fila por celda estática de 0.01° (sin el margen; el margen se añade al aplicarla).
 - **daily_cell_sensor**: `local_date, cell, lat_c, lon_c, sensor, family, count, count_with_low, total_frp, total_frp_with_low`. Solo contiene filas con detecciones (no hay ceros).
   - `count` y `total_frp` excluyen la confianza baja; las variantes `*_with_low` la incluyen.
@@ -108,7 +138,7 @@ dataset/*.csv
   - Confianza MODIS: <30 baja, 30–79 nominal, ≥80 alta (coincide con `cleaning.py`).
   - `type`: 0 vegetación, 1 volcán, 2 fuente estática, 3 offshore.
   - Las series de MODIS con intervalos < ~8 días tienen sesgo de muestreo (por eso trabajamos por semana).
-  - Los datos NRT no sirven para series largas. Los CSV descargados son todos estándar, no NRT.
+  - Los datos NRT no sirven para series largas. Todos los CSV descargados son estándar **salvo ago–nov de 2026**, que es NRT (ver "Datos NRT de 2026").
 - **Versiones mezcladas de MODIS en FIRMS** (decisión 12): `6.2` en 2002–2017, `6.03` en 2018–2022 y `61.03` en 2023–24. El tipado de fuentes estáticas mejora desde 2018, así que antes de 2018 hay ~1–2 % de fuentes estáticas contadas como vegetación.
   - **Corregido con la máscara de fuentes estáticas** (`settings.yaml` → `static_mask`): celdas de 0.01° con `type` 1/2 en ≥ 2 años (de cualquier sensor), más un margen de ±1 celda, excluidas de todos los años. Quita el 1.3–1.5 % de Aqua antes de 2018 y el 0.8 % después; a S-NPP, el ~1.5 % en todos los años.
   - Su efecto en el factor es mínimo (≤ 1 %; la temporada baja sube a +1.1 %). Su valor está en limpiar la serie 2002–2011 y la climatología.
@@ -123,7 +153,7 @@ dataset/*.csv
      - Tramo `estimado` = `iso_year` 2002–2011 (`settings.yaml` → `harmonize.estimated`): Aqua × factor de temporada del modelo elegido (`calibration_summary.json` → `chosen_model`).
      - Desde 2012, VIIRS real por semana: S-NPP si ≥ 6 días y sin `in_outage`; si no, NOAA-20 (luego NOAA-21); si ningún VIIRS sirve, Aqua × factor con `calidad = relleno` (4 semanas de 2012).
      - NaN (`fuente = sin dato`): semanas con Aqua de 0 días o solapadas con `harmonize.aqua_gaps` (lista plana de pares inicio, fin). Hoy: 2002-07-29, 2002-08-05 y 2010-02-01 (Aqua y Terra en 0 toda la semana).
-     - La serie va de 2002-07-01 (semana `parcial`) a la última semana con algún VIIRS de 7 días (2024-12-23).
+     - La serie va de 2002-07-01 (semana `parcial`) a la última semana con algún VIIRS de 7 días. Con los datos hasta 2024 era 2024-12-23; con 2026 llegará a noviembre de 2026, y las últimas semanas serán NRT y `preliminar`. Hay que volver a correr `build --all-years` → `calibrate` → `harmonize` → `climatology` → `export`.
      - Columnas `tramo`, `fuente` ∈ {estimado, S-NPP, NOAA-20, NOAA-21, sin dato} y `calidad` ∈ {ok, parcial, relleno, sin dato}.
      - Bandas: `*_ic_inf/sup` (IC del factor) y `*_inf/sup` (banda de predicción semanal del 90 %, cuantiles de observado/predicho por temporada en validación, fuera de muestra). Cubre 88–90 % de las semanas en 2023–2024 (S-NPP y NOAA-20). Total anual: razón anual mín./máx. de validación (conteo 0.92–1.05; FRP 0.81–1.00, el FRP estimado tiene un sesgo de ~+12 %).
      - Por celda solo hay bandas IC del factor; la suma de celdas coincide con la serie nacional.
@@ -174,9 +204,9 @@ FIRMS solo publica detecciones, así que un día sin focos puede ser nublado, si
   2. Clasificar: **sierra** ≥ 2000 m; **costa** < 2000 m al oeste de la cordillera; **selva** < 2000 m al este. El lado se define con la línea de altitud máxima en cada latitud. Ajustar los umbrales si quedan grupos muy desbalanceados.
   3. Modelo C en `calibration.py`: `y ~ C(week_id) + viirs:C(season):C(zona)`, sobre zona × semana a partir de `weekly_cell_sensor`. Se valida contra A y B con la misma regla de MAE > 5 %. Aunque no gane a nivel nacional, puede servir para Cusco.
   4. Dependencias solo para ese script: `pystac-client`, `planetary-computer` y `rasterio`. No están instaladas todavía y el pipeline principal no las necesita.
-- Los datos de 2025 ya están en el archivo de FIRMS, pero aún no se descargaron (lo descargado llega hasta 2024). S-NPP terminó el 2-nov-2026 (verificado).
+- Los datos VIIRS de 2025 y 2026 ya están descargados y versionados (commit `329ae03`). 2026 es NRT desde el 1-ago (ver "Datos NRT de 2026"). Las salidas de `output/` todavía se generaron con los datos hasta 2024. S-NPP terminó el 2-nov-2026 (verificado; su CSV llega al 1-nov).
 
 ## Equipo y convenciones de git
 - Hay 5 personas, cada una dueña de un grupo de módulos (ver la sección 5 del README) para evitar conflictos de git. Mantén las firmas de las funciones stub, porque son los contratos entre integrantes.
 - Commits en español con formato conventional: `tipo(ámbito): descripción en infinitivo`. Ejemplo: `feat(aggregate): implementar agregación semanal ISO con ceros explícitos`.
-- No versionar `dataset/`, `output/interim/`, `*.parquet` ni `*.csv.gz`. `output/reports/` **sí** se versiona.
+- No versionar `output/interim/`, `*.parquet` ni `*.csv.gz`. `output/reports/` **sí** se versiona. `dataset/` **sí** está versionado desde nov-2026 (la línea de `.gitignore` está comentada). Al volver a descargar el CSV de 2026, el NRT cambia y el diff es grande.

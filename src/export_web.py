@@ -29,9 +29,9 @@ from pathlib import Path
 import pandas as pd
 
 from climatology import CATEGORIES, CATEGORY_COLORS, NO_DATA
-from config import CELL_SIZE, CLIMATOLOGY, HARMONIZE, SEASONS
+from config import CELL_SIZE, CLIMATOLOGY, FINE_CELL_FROM_YEAR, HARMONIZE, SEASONS
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.2"  # 1.1: malla variable (0.25° hasta 2011, 0.1° desde 2012); 1.2: marca preliminar (NRT)
 
 # Etiqueta de climatology.py -> id estable para el frontend
 CATEGORY_IDS = {
@@ -132,9 +132,11 @@ CALENDAR_SPEC = {
     "tramo": ("tramo", _tramo_id),
     "fuente": ("fuente", _str),
     "calidad": ("calidad", _str),
+    "preliminar": ("preliminar", _bool),
     "dias_mes": ("dias_mes", _int),
     "dias_estimado": ("dias_estimado", _int),
     "dias_sin_dato": ("dias_sin_dato", _int),
+    "dias_preliminar": ("dias_preliminar", _int),
     "count": ("count", _int),
     "count_inf": ("count_inf", _int),
     "count_sup": ("count_sup", _int),
@@ -153,6 +155,7 @@ WEEKLY_SPEC = {
     "tramo": ("tramo", _tramo_id),
     "fuente": ("fuente", _str),
     "calidad": ("calidad", _str),
+    "preliminar": ("preliminar", _bool),
     "dias_viirs": ("viirs_days", _int),
     "count": ("count", _int),
     "count_inf": ("count_inf", _int),
@@ -187,6 +190,7 @@ RANKING_SPEC = {
     "anio": ("year", _int),
     "tramo": ("tramo", _tramo_id),
     "completo": ("completo", _bool),
+    "preliminar": ("preliminar", _bool),
     "puesto": ("puesto", _int),
     "percentil": ("percentil", _f1),
     "count": ("count", _int),
@@ -245,6 +249,7 @@ def export_regional_summary_csv(df_anomalies: pd.DataFrame, out_path: Path) -> N
             "meses_sobre_normal": int(g["cat"].isin(above).sum()),
             "meses_bajo_normal": int(g["cat"].isin(below).sum()),
             "meses_sin_dato": int((g["cat"] == "sin_dato").sum()),
+            "meses_preliminares": int(g["preliminar"].fillna(False).astype(bool).sum()) if "preliminar" in g else 0,
             "meses_inciertos": int(g["categoria_incierta"].fillna(False).astype(bool).sum()),
         })
     pd.DataFrame(rows).to_csv(out_path, index=False, encoding="utf-8")
@@ -301,9 +306,25 @@ def export_ranking_json(ambito: str, ranking: pd.DataFrame, out_path: Path) -> N
 
 
 def _cell_aois(lat: float, lon: float) -> list[str]:
-    """Ámbitos (rectángulos de settings.yaml) que contienen el centro de la celda (misma regla que climatology)."""
+    """Ámbitos (rectángulos de settings.yaml) que contienen el centro (misma regla que climatology)."""
     return [name for name, (la0, la1, lo0, lo1) in CLIMATOLOGY["aois"].items()
             if la0 <= lat <= la1 and lo0 <= lon <= lo1]
+
+
+def _cell_table(monthly_cell: pd.DataFrame) -> pd.DataFrame:
+    """
+    Una fila por celda del mapa: id, centro, tamaño (cell_deg) y ámbitos. Los ámbitos se deciden con la
+    celda de análisis de 0.25° (lat_025/lon_025), igual que en climatology.region_monthly; una celda de
+    0.1° que cruza el borde de dos celdas de 0.25° se asigna a la unión de ambas.
+    """
+    mc = monthly_cell
+    if "cell_deg" not in mc:  # tablas anteriores a la malla variable: todo en 0.25°
+        mc = mc.assign(cell_deg=CELL_SIZE, lat_025=mc["lat_c"], lon_025=mc["lon_c"])
+    parts = mc[["cell", "lat_c", "lon_c", "cell_deg", "lat_025", "lon_025"]].drop_duplicates()
+    parts["ambitos"] = [_cell_aois(la, lo) for la, lo in zip(parts["lat_025"], parts["lon_025"])]
+    cells = (parts.groupby(["cell", "lat_c", "lon_c", "cell_deg"], as_index=False)["ambitos"]
+             .agg(lambda xs: sorted({a for x in xs for a in x})))
+    return cells.sort_values(["cell_deg", "lat_c", "lon_c"], ascending=[False, False, True])
 
 
 def export_cells(monthly_cell: pd.DataFrame, out_dir: Path) -> dict:
@@ -311,13 +332,14 @@ def export_cells(monthly_cell: pd.DataFrame, out_dir: Path) -> dict:
     cells_index.json (geometría ligera) + cells_{AAAA}.json (por año, solo celdas con focos > 0).
     Los meses del año sin ninguna fila en la tabla (p. ej. ene-jun 2002) se exportan como null.
     """
-    cells = (monthly_cell[["cell", "lat_c", "lon_c"]].drop_duplicates("cell")
-             .sort_values(["lat_c", "lon_c"], ascending=[False, True]))
+    cells = _cell_table(monthly_cell)
+    sizes_deg = sorted({float(x) for x in cells["cell_deg"]}, reverse=True)
     index = {
         "version": SCHEMA_VERSION,
-        "tamano_celda": CELL_SIZE,
-        "celdas": [{"id": c, "lat": round(la, 3), "lon": round(lo, 3), "ambitos": _cell_aois(la, lo)}
-                   for c, la, lo in cells.itertuples(index=False)],
+        "tamanos_celda": sizes_deg,
+        "celda_fina_desde": FINE_CELL_FROM_YEAR,
+        "celdas": [{"id": c, "lat": round(la, 3), "lon": round(lo, 3), "tamano": float(deg), "ambitos": amb}
+                   for c, la, lo, deg, amb in cells.itertuples(index=False)],
     }
     sizes = {"cells_index.json": _write_json(index, out_dir / "cells_index.json")}
 
@@ -325,6 +347,7 @@ def export_cells(monthly_cell: pd.DataFrame, out_dir: Path) -> dict:
     for year, g in monthly_cell.groupby("year", sort=True):
         months_present = sorted(int(m) for m in g["month"].unique())
         quality = (g.drop_duplicates("month").set_index("month")["calidad"].to_dict())
+        prel_m = (g.groupby("month")["preliminar"].any().to_dict() if "preliminar" in g else {})
         piv_n = g.pivot_table(index="cell", columns="month", values="count", aggfunc="sum")
         piv_f = g.pivot_table(index="cell", columns="month", values="frp", aggfunc="sum")
         tot_n, tot_f = piv_n.sum(axis=1), piv_f.sum(axis=1)
@@ -334,12 +357,15 @@ def export_cells(monthly_cell: pd.DataFrame, out_dir: Path) -> dict:
             meses = [(_int(piv_n.at[cell, m]) if m in piv_n.columns and not _missing(piv_n.at[cell, m]) else 0)
                      if m in months_present else None for m in range(1, 13)]
             celdas[cell] = {"count": _int(tot_n[cell]), "frp": _int(tot_f[cell]), "meses": meses}
+        deg = sorted({float(x) for x in g["cell_deg"]}) if "cell_deg" in g else [CELL_SIZE]
         obj = {
             "version": SCHEMA_VERSION,
             "anio": int(year),
+            "tamano_celda": deg[0] if len(deg) == 1 else deg,
             "tramo": _tramo_id(g["tramo"].iloc[0]),
             "meses_con_dato": [m in months_present for m in range(1, 13)],
             "calidad_meses": [_str(quality.get(m)) for m in range(1, 13)],
+            "preliminar_meses": [bool(prel_m.get(m, False)) if m in months_present else None for m in range(1, 13)],
             "max_count": _int(tot_n.max()),
             "celdas": celdas,
         }
@@ -389,6 +415,14 @@ def export_meta_json(processed_dir: Path, ambitos: dict, files: dict, cell_years
         "modelo": harm.get("modelo"),
         "factores": factors,
         "cobertura_banda": HARMONIZE["band_coverage"],
+        "preliminar": {
+            "etiqueta": "Preliminar (NRT)",
+            "descripcion": "Dato Near Real-Time de FIRMS: puede cambiar cuando NASA publique el dato definitivo "
+                           "(estándar), normalmente con meses de retraso.",
+            "nrt_inicio": harm.get("nrt_inicio", {}),
+            "semanas": len(harm.get("semanas_preliminares", [])),
+            "primera_semana": (harm.get("semanas_preliminares") or [None])[0],
+        },
         "semana_inicio": harm.get("semana_inicio"),
         "semana_fin": harm.get("semana_fin"),
         "celdas_anios": cell_years,
@@ -443,7 +477,8 @@ def run_export(processed_dir: Path, out_dir: Path, monthly_cell: pd.DataFrame | 
         cell_years = info["anios"]
         files["cells_index.json"] = {"vista": "cells_index", "ambito": "peru"}
         files["cells_{anio}.json"] = {"vista": "cells", "ambito": "peru", "anios": cell_years}
-        print(f"Celdas: {info['n_celdas']} celdas de {CELL_SIZE}°, {len(cell_years)} años")
+        print(f"Celdas: {info['n_celdas']} celdas (0.25° hasta {FINE_CELL_FROM_YEAR - 1}, "
+              f"0.1° desde {FINE_CELL_FROM_YEAR}), {len(cell_years)} años")
     else:
         print("Aviso: no se encontró harmonized_monthly_cell; se omiten cells_*.json")
 

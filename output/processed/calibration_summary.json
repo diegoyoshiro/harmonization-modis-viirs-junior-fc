@@ -37,8 +37,8 @@
       "family": "poisson",
       "n_obs": 618,
       "n_weeks": 309,
-      "pearson_dispersion": 14.76789341825363,
-      "aic": 9853.005635140955,
+      "pearson_dispersion": 14.766014716211073,
+      "aic": 9852.238965427581,
       "converged": true
     },
     "B_count": {
@@ -46,8 +46,8 @@
       "family": "poisson",
       "n_obs": 618,
       "n_weeks": 309,
-      "pearson_dispersion": 9.351558253903189,
-      "aic": 7917.562407047881,
+      "pearson_dispersion": 9.350658993857252,
+      "aic": 7917.251184832,
       "converged": true
     },
     "A_total_frp": {
@@ -55,8 +55,8 @@
       "family": "tweedie",
       "n_obs": 618,
       "n_weeks": 309,
-      "pearson_dispersion": 4.888486933302714,
-      "aic": 10261.46918968948,
+      "pearson_dispersion": 4.888161896084416,
+      "aic": 10261.414198118599,
       "converged": true
     },
     "B_total_frp": {
@@ -64,8 +64,8 @@
       "family": "tweedie",
       "n_obs": 618,
       "n_weeks": 309,
-      "pearson_dispersion": 3.8549095518001018,
-      "aic": 10101.208376163673,
+      "pearson_dispersion": 3.8547161818429534,
+      "aic": 10101.16595389556,
       "converged": true
     }
   },
@@ -75,8 +75,8 @@
       "family": "poisson",
       "n_obs": 1122,
       "n_weeks": 561,
-      "pearson_dispersion": 9.790629510224095,
-      "aic": 14666.788467387014,
+      "pearson_dispersion": 9.789534878936188,
+      "aic": 14666.124996971774,
       "converged": true
     },
     "B_total_frp": {
@@ -84,8 +84,8 @@
       "family": "tweedie",
       "n_obs": 1122,
       "n_weeks": 561,
-      "pearson_dispersion": 4.22645705789407,
-      "aic": 18540.52398718735,
+      "pearson_dispersion": 4.226265212726174,
+      "aic": 18540.45501257707,
       "converged": true
     }
   }

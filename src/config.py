@@ -50,6 +50,9 @@ WINDOWS = {
 _proc = _raw_settings.get("processing", {})
 UTC_OFFSET_HOURS = _proc.get("utc_offset_hours", -5)
 CELL_SIZE = _proc.get("cell_size_deg", 0.25)
+# Malla única de resolución variable: celda de 0.1° (~11 km) desde 2012 y de 0.25° antes (cleaning.CELL_COLS)
+FINE_CELL_SIZE = float(_proc.get("fine_cell_size_deg", 0.1))
+FINE_CELL_FROM_YEAR = int(_proc.get("fine_cell_from_year", 2012))
 
 # Temporadas: nombre -> meses (mes del jueves de la semana ISO)
 SEASONS = _raw_settings.get("seasons", {

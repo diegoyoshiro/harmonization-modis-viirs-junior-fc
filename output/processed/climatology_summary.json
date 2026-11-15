@@ -6,16 +6,16 @@
   "ambitos": {
     "peru": {
       "mes_pico_mediana": "sep",
-      "pct_mediana_en_ago_sep": 60.96493490984598,
+      "pct_mediana_en_ago_sep": 60.9424036098424,
       "top5_anios": [
         {
           "year": 2005,
-          "count": 100342.0,
+          "count": 100339.0,
           "tramo": "estimado"
         },
         {
           "year": 2024,
-          "count": 92655.0,
+          "count": 92702.0,
           "tramo": "VIIRS real"
         },
         {
@@ -25,28 +25,16 @@
         },
         {
           "year": 2007,
-          "count": 83044.0,
+          "count": 83042.0,
           "tramo": "estimado"
         },
         {
           "year": 2016,
-          "count": 83003.0,
+          "count": 83002.0,
           "tramo": "VIIRS real"
         }
       ],
       "meses_muy_por_encima_o_record": [
-        {
-          "year": 2020,
-          "month": 6,
-          "count": 4485.0,
-          "categoria": "máximo histórico"
-        },
-        {
-          "year": 2020,
-          "month": 8,
-          "count": 30666.0,
-          "categoria": "muy por encima"
-        },
         {
           "year": 2020,
           "month": 10,
@@ -68,7 +56,7 @@
         {
           "year": 2022,
           "month": 11,
-          "count": 8097.0,
+          "count": 8095.0,
           "categoria": "muy por encima"
         },
         {
@@ -106,26 +94,37 @@
           "month": 10,
           "count": 11798.0,
           "categoria": "muy por encima"
+        },
+        {
+          "year": 2025,
+          "month": 12,
+          "count": 5222.0,
+          "categoria": "máximo histórico"
+        },
+        {
+          "year": 2026,
+          "month": 10,
+          "count": 13132.0,
+          "categoria": "muy por encima"
         }
       ],
-      "categorias_2024": {
-        "1": "normal",
-        "2": "por debajo",
-        "3": "muy por encima",
-        "4": "muy por encima",
-        "5": "por encima",
-        "6": "muy por encima",
-        "7": "por encima",
-        "8": "por encima",
-        "9": "máximo histórico",
+      "categorias_2026": {
+        "1": "muy por debajo",
+        "2": "muy por debajo",
+        "3": "normal",
+        "4": "normal",
+        "5": "normal",
+        "6": "normal",
+        "7": "por debajo",
+        "8": "por debajo",
+        "9": "muy por debajo",
         "10": "muy por encima",
-        "11": "por encima",
-        "12": "normal"
+        "11": "sin dato completo"
       }
     },
     "cusco": {
       "mes_pico_mediana": "sep",
-      "pct_mediana_en_ago_sep": 59.81289567422285,
+      "pct_mediana_en_ago_sep": 59.77336158121054,
       "top5_anios": [
         {
           "year": 2020,
@@ -154,30 +153,6 @@
         }
       ],
       "meses_muy_por_encima_o_record": [
-        {
-          "year": 2020,
-          "month": 7,
-          "count": 1232.0,
-          "categoria": "muy por encima"
-        },
-        {
-          "year": 2020,
-          "month": 8,
-          "count": 4304.0,
-          "categoria": "máximo histórico"
-        },
-        {
-          "year": 2020,
-          "month": 10,
-          "count": 1770.0,
-          "categoria": "muy por encima"
-        },
-        {
-          "year": 2020,
-          "month": 11,
-          "count": 1352.0,
-          "categoria": "muy por encima"
-        },
         {
           "year": 2021,
           "month": 2,
@@ -225,32 +200,55 @@
           "month": 2,
           "count": 18.0,
           "categoria": "muy por encima"
+        },
+        {
+          "year": 2025,
+          "month": 12,
+          "count": 224.0,
+          "categoria": "muy por encima"
+        },
+        {
+          "year": 2026,
+          "month": 1,
+          "count": 80.0,
+          "categoria": "muy por encima"
+        },
+        {
+          "year": 2026,
+          "month": 2,
+          "count": 32.0,
+          "categoria": "máximo histórico"
+        },
+        {
+          "year": 2026,
+          "month": 10,
+          "count": 2685.0,
+          "categoria": "muy por encima"
         }
       ],
-      "categorias_2024": {
-        "1": "normal",
-        "2": "muy por encima",
-        "3": "por encima",
+      "categorias_2026": {
+        "1": "muy por encima",
+        "2": "máximo histórico",
+        "3": "normal",
         "4": "normal",
-        "5": "por debajo",
+        "5": "por encima",
         "6": "normal",
         "7": "normal",
         "8": "normal",
-        "9": "por encima",
-        "10": "por encima",
-        "11": "normal",
-        "12": "normal"
+        "9": "normal",
+        "10": "muy por encima",
+        "11": "sin dato completo"
       }
     }
   },
   "peru_categorias_meses": {
-    "normal": 122,
-    "muy por debajo": 37,
-    "por debajo": 37,
+    "normal": 131,
+    "muy por debajo": 44,
+    "por debajo": 41,
     "por encima": 36,
-    "muy por encima": 23,
-    "máximo histórico": 12,
-    "sin dato completo": 3
+    "muy por encima": 24,
+    "máximo histórico": 13,
+    "sin dato completo": 4
   },
   "peru_pct_meses_estimados_con_categoria_incierta": 88.59649122807018
 }

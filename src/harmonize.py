@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from calibration import MIN_TARGET_DAYS, REF_SENSOR, paired_weeks, predict_target
+from cleaning import CELL_COLS
 from config import HARMONIZE
 
 # Orden de preferencia de los satélites VIIRS para el tramo real.
@@ -37,7 +38,7 @@ VIIRS_PRIORITY = ("SNPP", "NOAA20", "NOAA21")
 SOURCE_LABELS = {"SNPP": "S-NPP", "NOAA20": "NOAA-20", "NOAA21": "NOAA-21"}
 # métrica de salida -> columna de las tablas semanales
 METRICS = {"count": "count", "frp": "total_frp"}
-CELL_KEYS = ["cell", "lat_c", "lon_c"]
+CELL_KEYS = CELL_COLS  # malla única de resolución variable (ver cleaning.CELL_COLS)
 CALENDAR = ["iso_year", "iso_week", "month", "season"]
 
 
@@ -93,6 +94,27 @@ def last_complete_week(df: pd.DataFrame) -> pd.Timestamp:
 # ---------------------------------------------------------------------------
 # Factores y bandas
 # ---------------------------------------------------------------------------
+def nrt_start(df: pd.DataFrame) -> dict[str, pd.Timestamp]:
+    """
+    Primer día (tabla diaria, columna local_date) o primera semana (tablas semanales, columna week) con
+    detecciones NRT de cada sensor. Desde ahí todo lo de ese sensor es preliminar, aunque algún día no
+    tenga focos. Si FIRMS reemplaza el NRT por el estándar y se vuelve a descargar, el sensor desaparece
+    de este dict y la marca se va sola.
+    """
+    if "nrt_count" not in df.columns:
+        return {}
+    date_col = "local_date" if "local_date" in df.columns else "week"
+    nrt = df[df["nrt_count"] > 0]
+    return {s: pd.Timestamp(d) for s, d in nrt.groupby("sensor")[date_col].min().items()}
+
+
+def _is_preliminary(dates: pd.Series, sensors: pd.Series, starts: dict[str, pd.Timestamp],
+                    span_days: int = 0) -> pd.Series:
+    """True si el período [fecha, fecha + span_days] del sensor toca su tramo NRT."""
+    start = sensors.map(starts)
+    return (dates + pd.Timedelta(days=span_days) >= start).fillna(False).astype(bool)
+
+
 def _factor_table(factors: pd.DataFrame) -> pd.DataFrame:
     """Factor e IC por temporada y métrica en formato ancho: season, factor_count, ic_inf_count, ..."""
     parts = []
@@ -223,6 +245,11 @@ def apply_harmonization(df_aggregated: pd.DataFrame, model_fit: dict, target_yea
         [use_viirs, use_aqua & ~estimated_period, use_aqua & (out["week"] + pd.Timedelta(days=6) >= aqua_start)
          & (out["week"] <= aqua_start), use_aqua],
         ["ok", "relleno", "parcial", "ok"], default="sin dato")
+    # Preliminar: el valor sale del producto NRT del sensor usado esa semana (ver nrt_start)
+    starts = model_fit.get("nrt_start")
+    starts = nrt_start(df) if starts is None else starts
+    used = pd.Series(np.where(use_viirs, out["viirs_sensor"], np.where(use_aqua, REF_SENSOR, None)), index=out.index)
+    out["preliminar"] = _is_preliminary(out["week"], used, starts, span_days=6)
 
     for k in METRICS:
         est = out[f"aqua_{k}"] * out[f"factor_{k}"]
@@ -241,7 +268,7 @@ def apply_harmonization(df_aggregated: pd.DataFrame, model_fit: dict, target_yea
                 mult = out["season"].map(q[col]).astype(float)
                 out[f"{k}_{b}"] = np.where(use_aqua, out[k] * mult, out[k])
 
-    cols = keys + CALENDAR + ["tramo", "fuente", "calidad", "viirs_days", "aqua_count", "aqua_frp",
+    cols = keys + CALENDAR + ["tramo", "fuente", "calidad", "preliminar", "viirs_days", "aqua_count", "aqua_frp",
                               "factor_count", "factor_frp"]
     for k in METRICS:
         cols += [k, f"{k}_ic_inf", f"{k}_ic_sup"] + ([f"{k}_inf", f"{k}_sup"] if bands is not None else [])
@@ -261,6 +288,7 @@ def annual_totals(series: pd.DataFrame, annual: pd.DataFrame | None = None) -> p
         row = {"iso_year": int(year), "tramo": g["tramo"].iloc[0], "n_weeks": int(len(g)),
                "weeks_estimado": int(e.sum()), "weeks_viirs": int(g["fuente"].isin(SOURCE_LABELS.values()).sum()),
                "weeks_sin_dato": int(g["fuente"].eq("sin dato").sum()),
+               "weeks_preliminar": int(g["preliminar"].sum()) if "preliminar" in g else 0,
                "fuentes": ", ".join(sorted(g.loc[g["fuente"] != "sin dato", "fuente"].unique()))}
         for k in METRICS:
             total = float(g[k].sum(skipna=True))
@@ -275,6 +303,17 @@ def annual_totals(series: pd.DataFrame, annual: pd.DataFrame | None = None) -> p
             row[f"aqua_{k}"] = float(g["aqua_" + k].sum(skipna=True))
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def last_aqua_year(df_weekly: pd.DataFrame, min_weeks: int = 26) -> int:
+    """
+    Último año ISO con Aqua en al menos min_weeks semanas con datos. Las comparaciones MODIS vs VIIRS
+    se cortan ahí: sin este límite, la semana del 30-dic-2024 (semana 1 de 2025 ISO, con un solo día
+    de Aqua) aparecía como un "año 2025" con -92 % de error. MODIS no está descargado desde 2025.
+    """
+    aqua = df_weekly[(df_weekly["sensor"] == REF_SENSOR) & (df_weekly["days_with_data"] > 0)]
+    weeks = aqua.groupby("iso_year")["week"].nunique()
+    return int(weeks[weeks >= min_weeks].index.max())
 
 
 def backcast_check(df_weekly: pd.DataFrame, factors: pd.DataFrame, model: str,
@@ -424,7 +463,8 @@ def monthly_bands(df_daily: pd.DataFrame, df_weekly: pd.DataFrame, calibration_f
 
 
 def harmonize_monthly(df_daily: pd.DataFrame, series: pd.DataFrame, factors: pd.DataFrame,
-                      bands: pd.DataFrame | None = None, by_cell: bool = False) -> pd.DataFrame:
+                      bands: pd.DataFrame | None = None, by_cell: bool = False,
+                      nrt: dict[str, pd.Timestamp] | None = None) -> pd.DataFrame:
     """
     Serie única mensual a partir de la tabla diaria, con la misma fuente que eligió cada semana.
 
@@ -432,9 +472,11 @@ def harmonize_monthly(df_daily: pd.DataFrame, series: pd.DataFrame, factors: pd.
     temporada del mes (el factor se aplica al agregado mensual, no a focos sueltos). Los días de
     semanas "sin dato" no suman: el mes queda con calidad "incompleto" y dias_sin_dato > 0.
 
-    Salidas: year, month, [cell, lat_c, lon_c], tramo, fuente, calidad, dias_*, count, frp
+    Salidas: year, month, [cell, lat_c, lon_c], tramo, fuente, calidad, preliminar, dias_*, count, frp
     (+ count_inf/sup y frp_inf/sup si se pasan bandas mensuales; solo a nivel nacional).
+    preliminar = el mes tiene al menos un día del producto NRT del sensor usado ese día (dias_preliminar).
     """
+    nrt = nrt_start(df_daily) if nrt is None else nrt
     season_of = _month_season()
     ft = _factor_table(factors).set_index("season")
     rows, days = _daily_with_source(df_daily, series)
@@ -451,9 +493,11 @@ def harmonize_monthly(df_daily: pd.DataFrame, series: pd.DataFrame, factors: pd.
 
     # Calendario: días por fuente en cada mes (nacional; es el mismo para todas las celdas)
     days["year"], days["month"] = days["local_date"].dt.year, days["local_date"].dt.month
+    days["prel"] = _is_preliminary(days["local_date"], days["sensor"], nrt)
     cal = (days.assign(est=days["fuente"].eq("estimado"), nan=days["fuente"].eq("sin dato"))
                .groupby(["year", "month"])
                .agg(dias=("local_date", "size"), dias_estimado=("est", "sum"), dias_sin_dato=("nan", "sum"),
+                    dias_preliminar=("prel", "sum"),
                     fuentes=("fuente", lambda s: "+".join(sorted(set(s) - {"sin dato"}))))
                .reset_index())
     cal["dias_mes"] = pd.to_datetime(dict(year=cal["year"], month=cal["month"], day=1)).dt.days_in_month
@@ -479,7 +523,10 @@ def harmonize_monthly(df_daily: pd.DataFrame, series: pd.DataFrame, factors: pd.
     out["calidad"] = np.select([out["dias_sin_dato"] > 0, out["dias"] < out["dias_mes"],
                                 (out["dias_estimado"] > 0) & (out["tramo"] == "VIIRS real")],
                                ["incompleto", "parcial", "relleno"], default="ok")
-    cols = keys + ["season", "tramo", "fuente", "calidad", "dias_mes", "dias", "dias_estimado", "dias_sin_dato"]
+    out["dias_preliminar"] = out["dias_preliminar"].astype(int)
+    out["preliminar"] = out["dias_preliminar"] > 0
+    cols = keys + ["season", "tramo", "fuente", "calidad", "preliminar", "dias_mes", "dias", "dias_estimado",
+                   "dias_sin_dato", "dias_preliminar"]
     for k in METRICS:
         cols += [k] + ([f"{k}_inf", f"{k}_sup"] if f"{k}_inf" in out else [])
     return out[cols].sort_values(keys).reset_index(drop=True)
@@ -510,8 +557,10 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
     print("Banda anual (razón observado/predicho, S-NPP y NOAA-20):")
     print(annual_r.round(3).to_string(index=False))
 
+    nrt = nrt_start(df_daily) if df_daily is not None else nrt_start(df_weekly)
     fit = {"factors": factors, "bands": bands, "viirs_choice": choose_viirs(df_weekly),
-           "aqua_missing": aqua_missing_weeks(df_weekly), "end_week": last_complete_week(df_weekly)}
+           "aqua_missing": aqua_missing_weeks(df_weekly), "end_week": last_complete_week(df_weekly),
+           "nrt_start": nrt}
     series = apply_harmonization(df_weekly, fit, target_years)
     series.to_csv(out_dir / "harmonized_weekly.csv", index=False)
     annual = annual_totals(series, annual_r)
@@ -520,13 +569,20 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
     print(f"\nSerie única {series['week'].min():%Y-%m-%d} a {series['week'].max():%Y-%m-%d} "
           f"({len(series)} semanas)")
     print(series.groupby(["tramo", "fuente", "calidad"]).size().rename("semanas").to_string())
+    prel = series[series["preliminar"]]
+    print("\nInicio del producto NRT (preliminar) por sensor:",
+          ", ".join(f"{s} {d:%Y-%m-%d}" for s, d in nrt.items()) or "ninguno")
+    if len(prel):
+        print(f"Semanas preliminares: {len(prel)} ({prel['week'].min():%Y-%m-%d} a {prel['week'].max():%Y-%m-%d})")
     print("\nSemanas sin dato:", ", ".join(f"{w:%Y-%m-%d}" for w in series.loc[series["fuente"] == "sin dato", "week"]))
     cols = ["iso_year", "tramo", "fuentes", "weeks_sin_dato", "aqua_count", "count", "count_inf", "count_sup",
             "frp", "frp_inf", "frp_sup"]
     print("\nTotales anuales (conteo y FRP en unidades VIIRS):")
     print(annual[cols].round(0).to_string(index=False))
 
-    check_years = sorted(set(series.loc[series["tramo"] == "VIIRS real", "iso_year"]))
+    aqua_last = last_aqua_year(df_weekly)
+    check_years = sorted(y for y in set(series.loc[series["tramo"] == "VIIRS real", "iso_year"]) if y <= aqua_last)
+    print(f"\nComparaciones MODIS vs VIIRS hasta {aqua_last} (último año con Aqua)")
     check = backcast_check(df_weekly, factors, model, check_years)
     check.to_csv(out_dir / "harmonization_backcast_check.csv", index=False)
     coverage = {
@@ -544,7 +600,7 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
 
     from validation import prediction_report
     prediction = prediction_report(df_weekly, final_factors, calibration_factors, model, bands,
-                                   out_dir, plot_dir, last_year=int(series["iso_year"].max()))
+                                   out_dir, plot_dir, last_year=aqua_last)
 
     monthly = monthly_cell = None
     if df_daily is not None:
@@ -552,9 +608,9 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
         mbands.to_csv(out_dir / "harmonization_bands_monthly.csv", index=False)
         print(f"\nBandas de predicción mensual ({HARMONIZE['band_coverage']:.0%}):")
         print(mbands.round(3).to_string(index=False))
-        monthly = harmonize_monthly(df_daily, series, factors, mbands)
+        monthly = harmonize_monthly(df_daily, series, factors, mbands, nrt=nrt)
         monthly.to_csv(out_dir / "harmonized_monthly.csv", index=False)
-        monthly_cell = harmonize_monthly(df_daily, series, factors, by_cell=True)
+        monthly_cell = harmonize_monthly(df_daily, series, factors, by_cell=True, nrt=nrt)
         path = save_table(monthly_cell, out_dir, "harmonized_monthly_cell")
         diff_w = abs(monthly["count"].sum() - series["count"].sum())
         diff_c = (monthly_cell.groupby(["year", "month"])["count"].sum()
@@ -583,6 +639,8 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
         "semanas_por_fuente": series["fuente"].value_counts().to_dict(),
         "semanas_por_calidad": series["calidad"].value_counts().to_dict(),
         "semanas_sin_dato": [f"{w:%Y-%m-%d}" for w in series.loc[series["fuente"] == "sin dato", "week"]],
+        "nrt_inicio": {s: f"{d:%Y-%m-%d}" for s, d in nrt.items()},
+        "semanas_preliminares": [f"{w:%Y-%m-%d}" for w in prel["week"]],
         "banda_anual": annual_r.round(4).to_dict("records"), "cobertura_banda_semanal": coverage,
     }
     (out_dir / "harmonize_summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False),
