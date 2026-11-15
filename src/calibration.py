@@ -1,6 +1,8 @@
 """
 Módulo de calibración empírica MODIS Aqua -> VIIRS S-NPP.
 
+La validación en años retenidos (S-NPP y NOAA-20, año a año) está en validation.py.
+
 Ajusta GLM semanales sobre la tabla larga `weekly_sensor` (semana x sensor, todo el dominio):
 
     y ~ C(week_id) + viirs                 Modelo A: un solo factor
@@ -178,71 +180,6 @@ def predict_target(pairs: pd.DataFrame, factors: pd.DataFrame, model: str, metri
     return out
 
 
-def _metrics(p: pd.DataFrame) -> dict:
-    err = p["pred"] - p["target"]
-    obs_total = p["target"].sum()
-    return {
-        "n_weeks": len(p),
-        "obs_total": float(obs_total), "pred_total": float(p["pred"].sum()),
-        "error_total_pct": float(100 * err.sum() / obs_total) if obs_total else np.nan,
-        "corr": float(np.corrcoef(p["pred"], p["target"])[0, 1]) if len(p) > 1 else np.nan,
-        "mae": float(err.abs().mean()),
-        "rmse": float(np.sqrt((err ** 2).mean())),
-        "mae_rel_pct": float(100 * err.abs().mean() / p["target"].mean()) if p["target"].mean() else np.nan,
-        "coverage_ic_pct": float(100 * p["target"].between(p["pred_inf"], p["pred_sup"]).mean()),
-    }
-
-
-def validate_glm(model_fit: dict, df_weekly: pd.DataFrame, validation_years: list[int]) -> pd.DataFrame:
-    """
-    Evalúa cada modelo/métrica aplicando el factor a Aqua en años retenidos y comparando con S-NPP.
-
-    Entradas:
-        model_fit: resultado de train_glm_weekly.
-        df_weekly: tabla `weekly_sensor`.
-        validation_years: lista explícita de años ISO retenidos.
-    Salidas:
-        DataFrame (model, metric, period, n_weeks, obs_total, pred_total, error_total_pct, corr,
-        mae, rmse, mae_rel_pct, coverage_ic_pct). period = "total" o el año.
-        coverage_ic_pct mide la cobertura de la banda del factor (no es un intervalo de predicción).
-    """
-    factors = model_fit["factors"]
-    rows = []
-    for (model, metric), _ in factors.groupby(["model", "metric"]):
-        pairs = paired_weeks(df_weekly, validation_years, metric, model_fit["ref"], model_fit["target"])
-        pred = predict_target(pairs, factors, model, metric)
-        rows.append({"model": model, "metric": metric, "period": "total", **_metrics(pred)})
-        for year, g in pred.groupby("iso_year"):
-            rows.append({"model": model, "metric": metric, "period": str(year), **_metrics(g)})
-    return pd.DataFrame(rows)
-
-
-def validate_monthly(model_fit: dict, df_weekly: pd.DataFrame, validation_years: list[int]) -> pd.DataFrame:
-    """Error total por mes del año (estacionalidad del sesgo) para cada modelo y métrica."""
-    factors = model_fit["factors"]
-    rows = []
-    for (model, metric), _ in factors.groupby(["model", "metric"]):
-        pairs = paired_weeks(df_weekly, validation_years, metric, model_fit["ref"], model_fit["target"])
-        pred = predict_target(pairs, factors, model, metric)
-        for month, g in pred.groupby("month"):
-            obs = g["target"].sum()
-            rows.append({"model": model, "metric": metric, "month": int(month),
-                         "obs_total": float(obs), "pred_total": float(g["pred"].sum()),
-                         "error_total_pct": float(100 * (g["pred"].sum() - obs) / obs) if obs else np.nan})
-    return pd.DataFrame(rows)
-
-
-def viirs_consistency(df_weekly: pd.DataFrame, years: list[int],
-                      a: str = "NOAA20", b: str = "SNPP") -> pd.DataFrame:
-    """Control: razón anual NOAA-20/S-NPP (debería ser ~1 si VIIRS es una serie unificada)."""
-    d = df_weekly[df_weekly["sensor"].isin([a, b]) & df_weekly["iso_year"].isin(years)]
-    t = d.pivot_table(index="iso_year", columns="sensor", values="count", aggfunc="sum")
-    if a not in t or b not in t:
-        return pd.DataFrame()
-    t[f"{a}/{b}"] = (t[a] / t[b]).round(3)
-    return t.reset_index()
-
-
 def select_model(validation: pd.DataFrame, metric: str = "count") -> str:
     """Elige el modelo más simple salvo que uno más complejo mejore el MAE en > MIN_IMPROVEMENT_PCT."""
     v = validation[(validation["metric"] == metric) & (validation["period"] == "total")]
@@ -254,40 +191,15 @@ def select_model(validation: pd.DataFrame, metric: str = "count") -> str:
     return chosen
 
 
-def _plot_validation(df_weekly: pd.DataFrame, fit: dict, model: str, years: list[int], path: Path) -> None:
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    pairs = paired_weeks(df_weekly, years, "count", fit["ref"], fit["target"])
-    p = predict_target(pairs, fit["factors"], model, "count")
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 4.5), gridspec_kw={"width_ratios": [3, 1]})
-    ax1.fill_between(p["week"], p["pred_inf"], p["pred_sup"], color="tab:blue", alpha=0.25,
-                     label="banda IC 95 % del factor")
-    ax1.plot(p["week"], p["target"], color="tab:orange", lw=1.2, label=f"{fit['target']} observado")
-    ax1.plot(p["week"], p["pred"], color="tab:blue", lw=1.2, label=f"{fit['ref']} × factor (modelo {model})")
-    ax1.set_title(f"Validación semanal {years[0]}-{years[-1]} (conteo limpio, todo el dominio)")
-    ax1.set_ylabel("detecciones por semana")
-    ax1.legend()
-    lim = max(p["target"].max(), p["pred"].max()) * 1.05
-    ax2.scatter(p["target"], p["pred"], s=8, alpha=0.6)
-    ax2.plot([0, lim], [0, lim], color="gray", lw=1, ls="--")
-    ax2.set_xlim(0, lim)
-    ax2.set_ylim(0, lim)
-    ax2.set_xlabel(f"{fit['target']} observado")
-    ax2.set_ylabel("predicción")
-    ax2.set_title("Predicción vs observado")
-    fig.tight_layout()
-    fig.savefig(path, dpi=140)
-    plt.close(fig)
-
-
 def run_calibration(df_weekly: pd.DataFrame, calibration_years: list[int], validation_years: list[int],
                     final_years: list[int], out_dir: Path, plot_dir: Path | None = None) -> dict:
     """
-    Pasos 4-6 del explainer: calibrar A/B, validar en años retenidos, elegir el modelo y
-    reajustarlo con todos los años estables para obtener el factor definitivo con IC 95 %.
+    Pasos 4-6 del explainer: calibrar A/B, validar en años retenidos (módulo validation), elegir
+    el modelo y reajustarlo con todos los años estables para obtener el factor definitivo con IC 95 %.
     """
+    # Import local: validation.py importa paired_weeks/predict_target de este módulo.
+    from validation import plot_validation, run_validation
+
     out_dir.mkdir(parents=True, exist_ok=True)
     pd.set_option("display.width", 200)
 
@@ -298,19 +210,8 @@ def run_calibration(df_weekly: pd.DataFrame, calibration_years: list[int], valid
     print(fit["factors"][["model", "metric", "season", "factor", "ic_inf", "ic_sup", "n_weeks", "dispersion"]]
           .round(3).to_string(index=False))
 
-    print(f"\nValidación {validation_years[0]}-{validation_years[-1]}")
-    validation = validate_glm(fit, df_weekly, validation_years)
-    validation.to_csv(out_dir / "validation_metrics.csv", index=False)
-    monthly = validate_monthly(fit, df_weekly, validation_years)
-    monthly.to_csv(out_dir / "validation_monthly.csv", index=False)
-    cols = ["model", "metric", "period", "n_weeks", "error_total_pct", "corr", "mae", "mae_rel_pct", "coverage_ic_pct"]
-    print(validation[cols].round(3).to_string(index=False))
-
-    control = viirs_consistency(df_weekly, validation_years)
-    if not control.empty:
-        control.to_csv(out_dir / "validation_noaa20_snpp.csv", index=False)
-        print("\nControl NOAA-20/S-NPP (debería ser ~1):")
-        print(control.to_string(index=False))
+    val = run_validation(fit["factors"], df_weekly, validation_years, out_dir)
+    validation = val["validation"]
 
     chosen = select_model(validation, "count")
     print(f"\nModelo elegido para conteos: {chosen} "
@@ -334,7 +235,8 @@ def run_calibration(df_weekly: pd.DataFrame, calibration_years: list[int], valid
                                                      encoding="utf-8")
     if plot_dir is not None:
         plot_dir.mkdir(parents=True, exist_ok=True)
-        _plot_validation(df_weekly, fit, chosen, validation_years, plot_dir / "calibration_validation.png")
+        plot_validation(df_weekly, fit["factors"], chosen, validation_years,
+                        plot_dir / "calibration_validation.png")
 
     print(f"\nTablas guardadas en: {out_dir}")
-    return {"fit": fit, "validation": validation, "chosen": chosen, "final": final}
+    return {"fit": fit, "validation": validation, "by_year": val["by_year"], "chosen": chosen, "final": final}

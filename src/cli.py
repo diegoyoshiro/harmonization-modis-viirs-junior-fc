@@ -6,9 +6,13 @@ Comandos principales:
     build     : Genera las tablas diaria y semanales agregadas en output/interim/.
     calibrate : Calibra el GLM semanal Aqua -> S-NPP, valida en años retenidos y guarda
                 el factor final en output/processed/ (requiere haber ejecutado build).
+    validate  : Repite solo la validación (S-NPP y NOAA-20, año a año) con los factores de
+                output/processed/calibration_factors.csv (requiere haber ejecutado calibrate).
+
+    harmonize : Serie única 2002-hoy: Aqua × factor (2002-2011, "estimado") + VIIRS real
+                (S-NPP, NOAA-20 de respaldo), nacional y por celda (requiere calibrate).
 
 Comandos previstos (stubs):
-    harmonize   : Armonización de la serie histórica.
     climatology : Cálculo de climatología y anomalías.
     export      : Exportación de datos para el frontend web.
 """
@@ -22,6 +26,8 @@ from pathlib import Path
 from aggregate import load_table, run_build
 from audit import run_audit
 from calibration import run_calibration, years_from_window
+from validation import run_validation
+from harmonize import run_harmonization
 from config import (
     INTERIM_DIR,
     MODIS_DIR,
@@ -43,14 +49,14 @@ def main() -> None:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("command", choices=["audit", "build", "calibrate", "harmonize", "climatology", "export"])
+    parser.add_argument("command", choices=["audit", "build", "calibrate", "validate", "harmonize", "climatology", "export"])
     parser.add_argument("--modis-dir", help=f"carpeta de MODIS (por defecto {MODIS_DIR})")
     parser.add_argument("--snpp-dir", help=f"carpeta de S-NPP (por defecto {SNPP_DIR})")
     parser.add_argument("--noaa20-dir", help=f"carpeta de NOAA-20 (por defecto {NOAA20_DIR}; opcional)")
     parser.add_argument("--noaa21-dir", help=f"carpeta de NOAA-21 (por defecto {NOAA21_DIR}; opcional)")
     parser.add_argument("--out-dir", default=None,
                         help="carpeta de salida (por defecto output/reports para audit, output/interim "
-                             "para build, output/processed para calibrate)")
+                             "para build, output/processed para calibrate, validate y harmonize)")
     parser.add_argument("--years", type=int, nargs="+",
                         help="usar solo estos años (ignora el rango del script)")
     parser.add_argument("--all-years", action="store_true",
@@ -58,7 +64,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Comandos stub
-    if args.command in ["harmonize", "climatology", "export"]:
+    if args.command in ["climatology", "export"]:
         raise NotImplementedError(f"El comando '{args.command}' está planificado como módulo stub.")
 
     # Comandos que parten de las tablas de output/interim (no leen los CSV crudos)
@@ -70,6 +76,35 @@ def main() -> None:
             validation_years=years_from_window(WINDOWS["validation"]),
             final_years=years_from_window(WINDOWS["final"]),
             out_dir=Path(args.out_dir) if args.out_dir else PROCESSED_DIR,
+            plot_dir=REPORTS_DIR,
+        )
+        return
+    if args.command == "validate":
+        import pandas as pd
+        out_dir = Path(args.out_dir) if args.out_dir else PROCESSED_DIR
+        factors_path = PROCESSED_DIR / "calibration_factors.csv"
+        if not factors_path.exists():
+            sys.exit(f"No existe {factors_path}: ejecuta primero 'calibrate'.")
+        run_validation(pd.read_csv(factors_path), load_table(INTERIM_DIR, "weekly_sensor"),
+                       years_from_window(WINDOWS["validation"]), out_dir)
+        return
+    if args.command == "harmonize":
+        import json
+        import pandas as pd
+        out_dir = Path(args.out_dir) if args.out_dir else PROCESSED_DIR
+        needed = ["harmonization_factors.csv", "calibration_factors.csv", "calibration_summary.json"]
+        absent = [n for n in needed if not (PROCESSED_DIR / n).exists()]
+        if absent:
+            sys.exit(f"Faltan {absent} en {PROCESSED_DIR}: ejecuta primero 'calibrate'.")
+        chosen = json.loads((PROCESSED_DIR / "calibration_summary.json").read_text(encoding="utf-8"))["chosen_model"]
+        run_harmonization(
+            load_table(INTERIM_DIR, "weekly_sensor"),
+            load_table(INTERIM_DIR, "weekly_cell_sensor"),
+            final_factors=pd.read_csv(PROCESSED_DIR / "harmonization_factors.csv"),
+            calibration_factors=pd.read_csv(PROCESSED_DIR / "calibration_factors.csv"),
+            model=chosen,
+            validation_years=years_from_window(WINDOWS["validation"]),
+            out_dir=out_dir,
             plot_dir=REPORTS_DIR,
         )
         return

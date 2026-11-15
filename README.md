@@ -25,8 +25,9 @@ proyecto/
 │   ├── cleaning.py           # Filtros puros: hora local (UTC-5), type, confianza, celdas
 │   ├── audit.py              # Diagnóstico, razones entre sensores, alertas y gráficos
 │   ├── aggregate.py          # Agregación diaria y semanal ISO (nacional y por celda) con ceros explícitos
-│   ├── calibration.py        # GLM semanal Aqua→S-NPP: calibración, validación y factor final
-│   ├── harmonize.py          # STUB: Aplicación del factor a la serie 2002-2011 agregada
+│   ├── calibration.py        # GLM semanal Aqua→S-NPP: calibración, selección del modelo y factor final
+│   ├── validation.py         # Validación en años retenidos contra S-NPP y NOAA-20, año a año
+│   ├── harmonize.py          # Serie única: Aqua × factor (2002-2011) + VIIRS real (S-NPP/NOAA-20), con bandas
 │   ├── climatology.py        # STUB: Mediana histórica, percentiles y cálculo de anomalías
 │   ├── export_web.py         # STUB: Exportación JSON/CSV de entrega final
 │   ├── cli.py                # Interfaz CLI central del proyecto
@@ -110,9 +111,21 @@ Requiere haber ejecutado `build --all-years`. Ajusta los GLM semanales Aqua → 
 ```bash
 python src/cli.py calibrate
 ```
-*Salidas generadas*: `output/processed/` (`calibration_factors.csv`, `validation_metrics.csv`, `validation_monthly.csv`, `validation_noaa20_snpp.csv`, `harmonization_factors.csv` con el factor final y su IC 95 %, `calibration_summary.json`) y `output/reports/calibration_validation.png`.
+*Salidas generadas*: `output/processed/` (`calibration_factors.csv`, `validation_metrics.csv`, `validation_by_year.csv` (error por año contra S-NPP y NOAA-20, 2018–2022 más 2023–2024 como `deriva_aqua`), `validation_monthly.csv`, `validation_noaa20_snpp.csv`, `harmonization_factors.csv` con el factor final y su IC 95 %, `calibration_summary.json`) y `output/reports/calibration_validation.png`.
 
-### D. Personalización de Rutas
+Para repetir solo la validación con los factores ya guardados en `calibration_factors.csv` (sin reajustar el GLM):
+```bash
+python src/cli.py validate
+```
+
+### D. Serie única armonizada (`harmonize`)
+Requiere haber ejecutado `calibrate`. Aplica el factor final por temporada a Aqua en 2002–2011 (tramo "estimado") y lo une con VIIRS real desde 2012 (S-NPP; NOAA-20 en las semanas en que S-NPP falla). Las semanas sin dato de Aqua quedan como NaN, no como cero:
+```bash
+python src/cli.py harmonize
+```
+*Salidas generadas*: `output/processed/` (`harmonized_weekly.csv` con la serie nacional, `fuente`, `calidad` y bandas; `harmonized_weekly_cell.parquet` por celda de 0.25°; `harmonized_annual.csv`; `harmonization_bands.csv`; `harmonization_backcast_check.csv`; `harmonize_summary.json`) y `output/reports/harmonized_series.png`.
+
+### E. Personalización de Rutas
 Es posible especificar carpetas personalizadas vía argumentos CLI:
 ```bash
 python src/cli.py audit --modis-dir ruta/a/modis --snpp-dir ruta/a/snpp --out-dir ruta/salida

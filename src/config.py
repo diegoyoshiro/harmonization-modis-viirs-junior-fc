@@ -63,6 +63,18 @@ OUTAGES = {
     for sensor, span in (_raw_settings.get("outages") or {}).items()
 }
 
+# Armonización (serie única). Los períodos se escriben como lista plana de pares inicio, fin.
+_harm = _raw_settings.get("harmonize") or {}
+_gaps = [str(x) for x in (_harm.get("aqua_gaps") or [])]
+if len(_gaps) % 2:
+    raise ValueError("settings.yaml -> harmonize.aqua_gaps debe tener pares inicio, fin")
+HARMONIZE = {
+    "estimated": [int(y) for y in _harm.get("estimated", [2002, 2011])],
+    "aqua_start": str(_harm.get("aqua_start", "2002-07-04")),
+    "aqua_gaps": [(_gaps[i], _gaps[i + 1]) for i in range(0, len(_gaps), 2)],
+    "band_coverage": float(_harm.get("band_coverage", 0.90)),
+}
+
 # Máscara de fuentes estáticas (decisión 12)
 STATIC_MASK = {
     "enabled": True,
