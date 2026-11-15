@@ -29,7 +29,7 @@ proyecto/
 │   ├── validation.py         # Validación en años retenidos contra S-NPP y NOAA-20, año a año
 │   ├── harmonize.py          # Serie única: Aqua × factor (2002-2011) + VIIRS real (S-NPP/NOAA-20), con bandas
 │   ├── climatology.py        # Línea base 2003-2024, anomalías con semáforo, ranking anual y calendario año × mes
-│   ├── export_web.py         # STUB: Exportación JSON/CSV de entrega final
+│   ├── export_web.py         # Exportación JSON/CSV para el frontend (docs/frontend_datos.md)
 │   ├── cli.py                # Interfaz CLI central del proyecto
 │   └── legacy/               # Código monolítico original de referencia
 │       └── firms_pipeline.py

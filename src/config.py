@@ -29,6 +29,7 @@ NOAA21_DIR = PROJECT_ROOT / _paths.get("noaa21", "dataset/noaa21")
 REPORTS_DIR = PROJECT_ROOT / _paths.get("reports", "output/reports")
 INTERIM_DIR = PROJECT_ROOT / _paths.get("interim", "output/interim")
 PROCESSED_DIR = PROJECT_ROOT / _paths.get("processed", "output/processed")
+WEB_DIR = PROJECT_ROOT / _paths.get("web", "output/web")
 
 # Por compatibilidad con firmas
 DEFAULT_OUT_DIR = REPORTS_DIR

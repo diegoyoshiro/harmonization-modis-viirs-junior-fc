@@ -8,6 +8,7 @@ paths:
   reports: output/reports
   interim: output/interim
   processed: output/processed
+  web: output/web            # JSON para el frontend (comando export)
 
 years:
   min: 2012

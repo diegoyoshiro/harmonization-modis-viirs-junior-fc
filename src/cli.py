@@ -13,9 +13,8 @@ Comandos principales:
                 (S-NPP, NOAA-20 de respaldo), nacional y por celda (requiere calibrate).
     climatology : Línea base 2003-2024, anomalías, ranking anual y calendario año × mes (Perú y
                 áreas de interés de settings.yaml); requiere harmonize.
-
-Comandos previstos (stubs):
-    export      : Exportación de datos para el frontend web.
+    export      : JSON por vista para el frontend en output/web/ (contrato en docs/frontend_datos.md);
+                requiere climatology.
 """
 
 from __future__ import annotations
@@ -30,6 +29,7 @@ from calibration import run_calibration, years_from_window
 from validation import run_validation
 from harmonize import run_harmonization
 from climatology import run_climatology
+from export_web import run_export
 from config import (
     INTERIM_DIR,
     MODIS_DIR,
@@ -39,6 +39,7 @@ from config import (
     REPORTS_DIR,
     SNPP_DIR,
     SOURCES,
+    WEB_DIR,
     WINDOWS,
     YEAR_MAX,
     YEAR_MIN,
@@ -58,16 +59,13 @@ def main() -> None:
     parser.add_argument("--noaa21-dir", help=f"carpeta de NOAA-21 (por defecto {NOAA21_DIR}; opcional)")
     parser.add_argument("--out-dir", default=None,
                         help="carpeta de salida (por defecto output/reports para audit, output/interim "
-                             "para build, output/processed para calibrate, validate, harmonize y climatology)")
+                             "para build, output/processed para calibrate, validate, harmonize y climatology, "
+                             "output/web para export)")
     parser.add_argument("--years", type=int, nargs="+",
                         help="usar solo estos años (ignora el rango del script)")
     parser.add_argument("--all-years", action="store_true",
                         help="ignorar el rango YEAR_MIN-YEAR_MAX y usar todos los archivos")
     args = parser.parse_args()
-
-    # Comandos stub
-    if args.command in ["export"]:
-        raise NotImplementedError(f"El comando '{args.command}' está planificado como módulo stub.")
 
     # Comandos que parten de las tablas de output/interim (no leen los CSV crudos)
     if args.command == "calibrate":
@@ -129,6 +127,18 @@ def main() -> None:
             out_dir=out_dir,
             plot_dir=REPORTS_DIR,
         )
+        return
+    if args.command == "export":
+        needed = ["anomalies_monthly.csv", "anomalies_weekly.csv", "climatology_monthly.csv",
+                  "climatology_weekly.csv", "annual_ranking.csv", "harmonize_summary.json"]
+        absent = [n for n in needed if not (PROCESSED_DIR / n).exists()]
+        if absent:
+            sys.exit(f"Faltan {absent} en {PROCESSED_DIR}: ejecuta primero 'harmonize' y 'climatology'.")
+        try:
+            monthly_cell = load_table(PROCESSED_DIR, "harmonized_monthly_cell")
+        except FileNotFoundError:
+            monthly_cell = None
+        run_export(PROCESSED_DIR, Path(args.out_dir) if args.out_dir else WEB_DIR, monthly_cell)
         return
 
     source_dirs = {
