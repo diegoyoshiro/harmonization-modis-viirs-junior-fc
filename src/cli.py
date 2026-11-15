@@ -2,11 +2,12 @@
 Interfaz de línea de comandos (CLI) del pipeline FIRMS.
 
 Comandos principales:
-    audit : Ejecuta diagnóstico de calidad de archivos y genera reportes en output/reports/.
-    build : Procesa y genera la tabla diaria agregada en output/interim/.
+    audit     : Ejecuta diagnóstico de calidad de archivos y genera reportes en output/reports/.
+    build     : Genera las tablas diaria y semanales agregadas en output/interim/.
+    calibrate : Calibra el GLM semanal Aqua -> S-NPP, valida en años retenidos y guarda
+                el factor final en output/processed/ (requiere haber ejecutado build).
 
 Comandos previstos (stubs):
-    calibrate   : Calibración del modelo GLM semanal.
     harmonize   : Armonización de la serie histórica.
     climatology : Cálculo de climatología y anomalías.
     export      : Exportación de datos para el frontend web.
@@ -18,16 +19,19 @@ import argparse
 import sys
 from pathlib import Path
 
-from aggregate import run_build
+from aggregate import load_table, run_build
 from audit import run_audit
+from calibration import run_calibration, years_from_window
 from config import (
     INTERIM_DIR,
     MODIS_DIR,
     NOAA20_DIR,
     NOAA21_DIR,
+    PROCESSED_DIR,
     REPORTS_DIR,
     SNPP_DIR,
     SOURCES,
+    WINDOWS,
     YEAR_MAX,
     YEAR_MIN,
 )
@@ -45,7 +49,8 @@ def main() -> None:
     parser.add_argument("--noaa20-dir", help=f"carpeta de NOAA-20 (por defecto {NOAA20_DIR}; opcional)")
     parser.add_argument("--noaa21-dir", help=f"carpeta de NOAA-21 (por defecto {NOAA21_DIR}; opcional)")
     parser.add_argument("--out-dir", default=None,
-                        help="carpeta de salida (por defecto output/reports para audit, output/interim para build)")
+                        help="carpeta de salida (por defecto output/reports para audit, output/interim "
+                             "para build, output/processed para calibrate)")
     parser.add_argument("--years", type=int, nargs="+",
                         help="usar solo estos años (ignora el rango del script)")
     parser.add_argument("--all-years", action="store_true",
@@ -53,8 +58,21 @@ def main() -> None:
     args = parser.parse_args()
 
     # Comandos stub
-    if args.command in ["calibrate", "harmonize", "climatology", "export"]:
+    if args.command in ["harmonize", "climatology", "export"]:
         raise NotImplementedError(f"El comando '{args.command}' está planificado como módulo stub.")
+
+    # Comandos que parten de las tablas de output/interim (no leen los CSV crudos)
+    if args.command == "calibrate":
+        weekly = load_table(INTERIM_DIR, "weekly_sensor")
+        run_calibration(
+            weekly,
+            calibration_years=years_from_window(WINDOWS["calibration"]),
+            validation_years=years_from_window(WINDOWS["validation"]),
+            final_years=years_from_window(WINDOWS["final"]),
+            out_dir=Path(args.out_dir) if args.out_dir else PROCESSED_DIR,
+            plot_dir=REPORTS_DIR,
+        )
+        return
 
     source_dirs = {
         "modis": Path(args.modis_dir) if args.modis_dir else MODIS_DIR,

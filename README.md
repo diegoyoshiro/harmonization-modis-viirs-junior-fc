@@ -24,8 +24,8 @@ proyecto/
 │   ├── io_firms.py           # Búsqueda y carga de datos en memoria (find_files, load)
 │   ├── cleaning.py           # Filtros puros: hora local (UTC-5), type, confianza, celdas
 │   ├── audit.py              # Diagnóstico, razones entre sensores, alertas y gráficos
-│   ├── aggregate.py          # Agregación diaria (y semanal stub) por celda y sensor
-│   ├── calibration.py        # STUB: Entrenamiento y validación de GLM semanal
+│   ├── aggregate.py          # Agregación diaria y semanal ISO (nacional y por celda) con ceros explícitos
+│   ├── calibration.py        # GLM semanal Aqua→S-NPP: calibración, validación y factor final
 │   ├── harmonize.py          # STUB: Aplicación del factor a la serie 2002-2011 agregada
 │   ├── climatology.py        # STUB: Mediana histórica, percentiles y cálculo de anomalías
 │   ├── export_web.py         # STUB: Exportación JSON/CSV de entrega final
@@ -34,7 +34,7 @@ proyecto/
 │       └── firms_pipeline.py
 ├── output/
 │   ├── reports/              # Reportes de auditoría de datos (CSV, PNG)
-│   ├── interim/              # Tablas agregadas intermedias (daily_cell_sensor.parquet / .csv.gz)
+│   ├── interim/              # Tablas agregadas intermedias (daily_cell_sensor, weekly_sensor, weekly_cell_sensor)
 │   └── processed/            # Series armonizadas finales y factores calibrados
 └── docs/
     ├── decisiones.md         # Registro de decisiones metodológicas y científicas
@@ -103,9 +103,16 @@ python src/cli.py build
 # Construir para un subconjunto de años
 python src/cli.py build --years 2014 2015
 ```
-*Salidas generadas*: `output/interim/` (`daily_cell_sensor.parquet` o `daily_cell_sensor.csv.gz` y `build_summary.csv`).
+*Salidas generadas*: `output/interim/` (`daily_cell_sensor`, `weekly_sensor` (semana × sensor), `weekly_cell_sensor` (semana × celda × sensor) en `.parquet` o `.csv.gz`, y `build_summary.csv`). Las tablas semanales usan semana ISO en hora local, incluyen ceros explícitos, `days_with_data` (días con observaciones del sensor) y la temporada definida en `settings.yaml`.
 
-### C. Personalización de Rutas
+### C. Calibración GLM (`calibrate`)
+Requiere haber ejecutado `build --all-years`. Ajusta los GLM semanales Aqua → S-NPP (modelo A: un factor; modelo B: factor por temporada) en la ventana de calibración, los valida en los años retenidos, elige el modelo y lo reajusta con todos los años estables (`windows` en `settings.yaml`):
+```bash
+python src/cli.py calibrate
+```
+*Salidas generadas*: `output/processed/` (`calibration_factors.csv`, `validation_metrics.csv`, `validation_monthly.csv`, `validation_noaa20_snpp.csv`, `harmonization_factors.csv` con el factor final y su IC 95 %, `calibration_summary.json`) y `output/reports/calibration_validation.png`.
+
+### D. Personalización de Rutas
 Es posible especificar carpetas personalizadas vía argumentos CLI:
 ```bash
 python src/cli.py audit --modis-dir ruta/a/modis --snpp-dir ruta/a/snpp --out-dir ruta/salida

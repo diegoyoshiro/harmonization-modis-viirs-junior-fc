@@ -16,10 +16,16 @@ years:
 windows:                     # ventanas documentadas para calibración y validación
   calibration: [2012, 2017]
   validation: [2018, 2022]
+  final: [2012, 2022]        # reajuste final con años estables (Aqua deriva desde 2023: paso 13:51 y 14:16)
 
 processing:
   utc_offset_hours: -5
   cell_size_deg: 0.25
+
+seasons:                     # temporada de quema por mes (mes del jueves de la semana ISO)
+  alta: [8, 9]               # ago-sep: ~60-65 % de las detecciones 2002-2024
+  media: [6, 7, 10, 11]
+  baja: [12, 1, 2, 3, 4, 5]
 
 alerts:
   max_gap_days: 3

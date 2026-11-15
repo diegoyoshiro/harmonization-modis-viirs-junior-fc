@@ -38,15 +38,24 @@ _years = _raw_settings.get("years", {})
 YEAR_MIN = _years.get("min", 2012)
 YEAR_MAX = _years.get("max", 2017)
 
-WINDOWS = _raw_settings.get("windows", {
+WINDOWS = {
     "calibration": [2012, 2017],
     "validation": [2018, 2022],
-})
+    "final": [2012, 2022],
+    **_raw_settings.get("windows", {}),
+}
 
 # Procesamiento
 _proc = _raw_settings.get("processing", {})
 UTC_OFFSET_HOURS = _proc.get("utc_offset_hours", -5)
 CELL_SIZE = _proc.get("cell_size_deg", 0.25)
+
+# Temporadas: nombre -> meses (mes del jueves de la semana ISO)
+SEASONS = _raw_settings.get("seasons", {
+    "alta": [8, 9],
+    "media": [6, 7, 10, 11],
+    "baja": [12, 1, 2, 3, 4, 5],
+})
 
 # Bounding Box Perú
 PERU_BBOX = _raw_settings.get("bbox", dict(lat_min=-18.5, lat_max=0.1, lon_min=-81.5, lon_max=-68.5))

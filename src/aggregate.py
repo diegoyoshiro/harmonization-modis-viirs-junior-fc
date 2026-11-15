@@ -1,6 +1,7 @@
 """
 Módulo de agregación espacial y temporal de datos FIRMS.
-Construcción de tabla diaria agregada por celda, fecha local y sensor.
+Construcción de tabla diaria agregada por celda, fecha local y sensor,
+y de las tablas semanales (ISO) que alimentan la calibración y la climatología.
 """
 
 from __future__ import annotations
@@ -10,7 +11,10 @@ from pathlib import Path
 
 import pandas as pd
 
+from config import SEASONS
 from io_firms import load
+
+METRICS = ["count", "count_with_low", "total_frp", "total_frp_with_low"]
 
 
 def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
@@ -63,27 +67,128 @@ def run_build(files: list[dict], out_dir: Path) -> None:
     result = result.sort_values(["local_date", "sensor", "cell"]).reset_index(drop=True)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        target = out_dir / "daily_cell_sensor.parquet"
-        result.to_parquet(target, index=False)
-    except ImportError:
-        target = out_dir / "daily_cell_sensor.csv.gz"
-        result.to_csv(target, index=False)
-        print("  (pyarrow no instalado: se guardó CSV comprimido. Instala con: pip install pyarrow)")
+    target = save_table(result, out_dir, "daily_cell_sensor")
     pd.DataFrame(report).to_csv(out_dir / "build_summary.csv", index=False)
     print(f"\nTabla diaria: {len(result)} filas -> {target}")
+
+    for level, name in [("national", "weekly_sensor"), ("cell", "weekly_cell_sensor")]:
+        weekly = aggregate_weekly(result, level=level)
+        target = save_table(weekly, out_dir, name)
+        print(f"Tabla semanal ({level}): {len(weekly)} filas -> {target}")
+
     if failures:
         print(f"Archivos con error ({len(failures)}):")
         for name, msg in failures:
             print(f"  - {name}: {msg}")
 
 
-def aggregate_weekly(df_daily: pd.DataFrame) -> pd.DataFrame:
+def save_table(df: pd.DataFrame, out_dir: Path, name: str) -> Path:
+    """Guarda en parquet si pyarrow está disponible; si no, en CSV comprimido."""
+    try:
+        target = out_dir / f"{name}.parquet"
+        df.to_parquet(target, index=False)
+    except ImportError:
+        target = out_dir / f"{name}.csv.gz"
+        df.to_csv(target, index=False)
+        print("  (pyarrow no instalado: se guardó CSV comprimido. Instala con: pip install pyarrow)")
+    return target
+
+
+def load_table(out_dir: Path, name: str) -> pd.DataFrame:
+    """Lee una tabla guardada con save_table (parquet o csv.gz)."""
+    parquet = out_dir / f"{name}.parquet"
+    if parquet.is_file():
+        return pd.read_parquet(parquet)
+    csv = out_dir / f"{name}.csv.gz"
+    if csv.is_file():
+        df = pd.read_csv(csv)
+        for col in ("local_date", "week"):
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col])
+        return df
+    raise FileNotFoundError(f"No existe {parquet} ni {csv}. Ejecuta primero: python src/cli.py build")
+
+
+def _week_start(dates: pd.Series) -> pd.Series:
+    """Lunes de la semana ISO de cada fecha local."""
+    d = pd.to_datetime(dates).dt.normalize()
+    return d - pd.to_timedelta(d.dt.weekday, unit="D")
+
+
+def _add_calendar(df: pd.DataFrame) -> pd.DataFrame:
+    """Añade año/semana ISO, mes y temporada. El mes es el del jueves (regla ISO)."""
+    iso = df["week"].dt.isocalendar()
+    df["iso_year"] = iso["year"].astype(int)
+    df["iso_week"] = iso["week"].astype(int)
+    df["month"] = (df["week"] + pd.Timedelta(days=3)).dt.month
+    month_to_season = {m: name for name, months in SEASONS.items() for m in months}
+    df["season"] = df["month"].map(month_to_season).fillna("sin_temporada")
+    return df
+
+
+def _sensor_weeks(d: pd.DataFrame) -> pd.DataFrame:
     """
-    STUB: Agrega la tabla diaria a nivel semanal ISO (semana x celda x sensor).
-    Entradas:
-        df_daily: DataFrame generado por aggregate_daily / daily_cell_sensor.
-    Salidas:
-        DataFrame agregado a nivel semanal para calibración y climatología.
+    Semanas en que cada sensor está operativo (de su primera a su última semana con datos)
+    y cuántos días de esa semana tuvo al menos una detección en todo el dominio.
+    days_with_data = 0 indica una semana sin observaciones: probable hueco, no "cero fuegos".
     """
-    raise NotImplementedError("aggregate_weekly no implementado aún.")
+    cov = d.groupby(["sensor", "family", "week"])["local_date"].nunique().rename("days_with_data")
+    frames = []
+    for (sensor, family), g in cov.groupby(level=["sensor", "family"]):
+        weeks = g.index.get_level_values("week")
+        full = pd.date_range(weeks.min(), weeks.max(), freq="7D")
+        frames.append(pd.DataFrame({
+            "sensor": sensor, "family": family, "week": full,
+            "days_with_data": g.droplevel(["sensor", "family"]).reindex(full, fill_value=0).to_numpy(),
+        }))
+    return pd.concat(frames, ignore_index=True)
+
+
+def aggregate_weekly(df_daily: pd.DataFrame, level: str = "national") -> pd.DataFrame:
+    """
+    Agrega la tabla diaria a semana ISO (lunes a domingo, hora local) con ceros explícitos.
+
+    level="national": una fila por semana x sensor (todo el dominio). Métricas:
+        count, count_with_low, total_frp, total_frp_with_low,
+        active_cells (celdas con count > 0), days_with_data.
+        Cada sensor tiene todas las semanas entre su inicio y su fin; las que no tienen
+        detecciones aparecen con 0 (omitirlas sesgaría el GLM hacia arriba).
+    level="cell": una fila por semana x celda x sensor. Para cada semana, el universo de celdas
+        es la unión de celdas con alguna detección (de cualquier sensor) esa semana, cruzada con
+        los sensores operativos esa semana; así cada par Aqua/VIIRS de una celda tiene su cero.
+        Métricas: las cuatro de la tabla diaria, active_days (días con count > 0) y days_with_data.
+
+    Columnas de calendario en ambos niveles: week (lunes), iso_year, iso_week, month, season.
+    Para filtrar ventanas de calibración/validación usar iso_year.
+    """
+    if level not in ("national", "cell"):
+        raise ValueError(f"level debe ser 'national' o 'cell', no {level!r}")
+
+    d = df_daily.copy()
+    d["week"] = _week_start(d["local_date"])
+    sensor_weeks = _sensor_weeks(d)
+
+    if level == "national":
+        agg = d.groupby(["week", "sensor"], as_index=False)[METRICS].sum()
+        active = (d[d["count"] > 0].groupby(["week", "sensor"])["cell"].nunique()
+                  .rename("active_cells").reset_index())
+        out = (sensor_weeks.merge(agg, on=["week", "sensor"], how="left")
+               .merge(active, on=["week", "sensor"], how="left"))
+        out[METRICS + ["active_cells"]] = out[METRICS + ["active_cells"]].fillna(0)
+        out = out.astype({"count": int, "count_with_low": int, "active_cells": int})
+        cols = ["week", "sensor", "family"]
+    else:
+        keys = ["week", "cell", "lat_c", "lon_c", "sensor"]
+        d["active_day"] = (d["count"] > 0).astype(int)
+        agg = (d.groupby(keys, as_index=False)[METRICS + ["active_day"]].sum()
+               .rename(columns={"active_day": "active_days"}))
+        cells = d[["week", "cell", "lat_c", "lon_c"]].drop_duplicates()
+        grid = cells.merge(sensor_weeks, on="week", how="inner")
+        out = grid.merge(agg, on=keys, how="left")
+        out[METRICS + ["active_days"]] = out[METRICS + ["active_days"]].fillna(0)
+        out = out.astype({"count": int, "count_with_low": int, "active_days": int})
+        cols = ["week", "cell", "lat_c", "lon_c", "sensor", "family"]
+
+    out = _add_calendar(out)
+    order = cols + [c for c in out.columns if c not in cols]
+    return out[order].sort_values(cols).reset_index(drop=True)

@@ -3,6 +3,7 @@ pandas>=3.1.1
 numpy>=2.5.4
 matplotlib>=3.11.2
 pyyaml>=6.0.0
+statsmodels>=0.14  # GLM de calibración (src/calibration.py)
 
 # Opcional: motor binario de alto rendimiento para archivos parquet
 # Requiere compilador o soporte binario según la versión de Python instalada.

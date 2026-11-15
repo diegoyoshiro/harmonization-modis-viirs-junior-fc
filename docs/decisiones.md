@@ -27,3 +27,24 @@ Este documento reúne las decisiones clave adoptadas para el diseño del pipelin
 ## 6. Aplicación de Factores Únicamente a Nivel Agregado
 - **Decisión**: El factor de armonización y las relaciones del GLM se aplican estrictamente a series agregadas temporales y espaciales (conteos y FRP total por celda/semana).
 - **Fundamento**: **Los puntos calientes crudos individuales no se armonizan ni se sintetizan**. Transformar detecciones geográficas individuales induciría falsos positivos y errores posicionales espurios dado el contraste de resolución entre la huella de 1 km de MODIS y 375 m de VIIRS.
+
+## 7. Agregación Semanal ISO con Ceros Explícitos y Cobertura
+- **Decisión**: La tabla semanal (`weekly_sensor`, `weekly_cell_sensor`) usa semana ISO en hora local, incluye ceros explícitos y la columna `days_with_data` (días de la semana con al menos una detección del sensor en el dominio).
+- **Fundamento**: Omitir las semanas sin detecciones sesga el GLM hacia arriba. `days_with_data` distingue "cero fuegos" de "satélite sin observaciones".
+
+## 8. Temporadas de Quema Definidas con los Datos
+- **Decisión**: alta = ago–sep, media = jun–jul y oct–nov, baja = dic–may (mes del jueves de la semana ISO; configurable en `settings.yaml`).
+- **Fundamento**: En 2002–2024, ago–sep concentran ~60–65 % de las detecciones y jul–oct ~85 %, con perfiles casi idénticos en Aqua, S-NPP y NOAA-20.
+
+## 9. Filtro de Semanas para la Calibración
+- **Decisión**: Se excluyen semanas en que Aqua no tiene observaciones (`days_with_data == 0`) o en que VIIRS tiene menos de 6 días con datos (`MIN_TARGET_DAYS`).
+- **Fundamento**: VIIRS detecta algún fuego en Perú casi todos los días, así que una semana incompleta es un apagón del satélite (p. ej. S-NPP, fines de julio a mediados de agosto de 2022, cuando NOAA-20 siguió observando). Para Aqua no se exige más porque, en temporada baja, tener pocos días con detecciones refleja ausencia de fuego; filtrar esas semanas sesgaría la razón. La baja detección de Aqua en semanas pico (p. ej. agosto de 2020) se conserva: es un límite real del sensor (huecos entre barridos de MODIS en el trópico, humo), no un error de datos.
+
+## 10. GLM con Efecto Fijo de Semana y Errores Agrupados
+- **Decisión**: `y ~ C(week_id) + viirs` (A) y `y ~ C(week_id) + viirs:C(season)` (B) sobre la tabla semanal nacional. Conteos con Poisson y FRP total con Tweedie (p = 1.5, enlace log). Errores estándar agrupados por semana. El factor es exp(β) con IC 95 %.
+- **Fundamento**: El efecto fijo de semana absorbe la actividad real de fuego. La dispersión de Pearson (~9–14 en conteos) confirma la sobredispersión, pero los errores agrupados la incorporan en la inferencia sin cambiar la estimación puntual, así que no hace falta pasar a binomial negativa. Se usa Tweedie y no Gamma porque hay semanas con FRP = 0.
+
+## 11. Selección del Modelo y Reajuste Final
+- **Decisión**: Se elige el modelo más simple salvo que uno más complejo reduzca el MAE semanal de validación (2018–2022) en más de 5 %. El modelo elegido se reajusta con 2012–2022 (`windows.final`).
+- **Fundamento**: El modelo B (por temporada) reduce el MAE de conteos de 369 a 314 (−15 %) y el error total del FRP de +15 % a +6 %. La razón VIIRS/Aqua es mayor en temporada baja (~8.8) que en temporada alta (~5.1), porque en temporada baja hay más focos pequeños que MODIS (1 km) no detecta. La ventana final termina en 2022 porque Aqua deriva de su órbita desde 2023 (hora de paso mediana de 13:51 en 2023 y 14:16 en 2024, frente a ~13:35 antes).
+- **Advertencia**: La banda IC 95 % del factor refleja la incertidumbre del factor, no el error de predicción semanal (cubre ~19 % de las semanas observadas). El año 2020 es el peor (corr. 0.74; error −12 %).
