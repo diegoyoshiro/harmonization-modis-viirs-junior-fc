@@ -102,7 +102,9 @@ def main() -> None:
         run_audit(files, out_dir)
     elif args.command == "build":
         out_dir = Path(args.out_dir) if args.out_dir else INTERIM_DIR
-        run_build(files, out_dir)
+        # La máscara de fuentes estáticas se construye siempre con todos los años disponibles
+        mask_files = find_files(source_dirs) if years else files
+        run_build(files, out_dir, mask_files=mask_files)
 
 
 if __name__ == "__main__":

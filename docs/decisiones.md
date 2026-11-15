@@ -54,7 +54,22 @@ Este documento reúne las decisiones clave adoptadas para el diseño del pipelin
   - La banda IC 95 % refleja la incertidumbre del factor, no el error semanal: cubre ~18 % de las semanas observadas.
   - El factor de FRP sobreestima en validación (+11 % en total), así que hay que presentarlo con cautela.
 
-## 12. Inconsistencia de `type` entre Versiones de MODIS (pendiente de corregir)
+## 12. Inconsistencia de `type` entre Versiones de MODIS (corregida con máscara de fuentes estáticas)
 - **Hallazgo**: Los CSV de FIRMS mezclan versiones de MODIS: `6.2` en 2002–2017, `6.03` en 2018–2022 y `61.03` (Colección 6.1) en 2023–2024. Desde la versión 03, el tipado de fuentes estáticas mejoró (MODIS C6 Fire User's Guide rev. C, sec. 5.5.2 y 7.2.3). Aqua marca `type=2/1` en ~1.8–2.3 % de sus focos desde 2018, pero en <0.5 % antes. VIIRS (versión 2) es consistente en todos los años (~2–3 %).
 - **Impacto**: Antes de 2018, ~1–1.5 % de las detecciones de Aqua con `type=0` están en ubicaciones que después se clasifican como estáticas: industria, volcanes, zonas urbanas. Esto infla levemente a Aqua en la calibración (2012–2017) frente a la validación (2018–2022), sesgando el factor ~1–2 % a la baja. Además deja puntos "eternos" en la climatología 2002–2011.
-- **Propuesta**: Construir una máscara de ubicaciones estáticas con todas las detecciones `type ∈ {1, 2}` de cualquier sensor y año, y excluirlas de todos los años en `cleaning.py`.
+- **Solución implementada**: Máscara de ubicaciones estáticas (`cleaning.build_static_mask`, `static_mask_keys`, `flag_static`; se arma en `aggregate.build_mask` durante `build`).
+  - Se juntan todas las detecciones `type ∈ {1, 2}` de **cualquier sensor y año**, siempre con todos los archivos disponibles, aunque se use `--years`. Así la máscara no depende de los años procesados.
+  - Se agrupan en celdas de **0.01°** (~1.1 km, del tamaño del píxel MODIS). Una celda es estática si tuvo `type` 1/2 en **al menos 2 años distintos** (persistencia, como la definición de FIRMS). Se añade un margen de **±1 celda** por el error de geolocalización de MODIS.
+  - Se excluyen de la tabla diaria (y por tanto de las semanales) los focos `type=0` que caen en esas celdas, en todos los años. Parámetros en `settings.yaml` → `static_mask`. La máscara se guarda en `output/interim/static_mask` y lo eliminado por archivo en `build_summary.csv` (`static_loc_removed`).
+  - `audit` no aplica la máscara: audita el dato crudo.
+- **Cómo se eligió**: Se probaron celdas de 0.005–0.02°, con y sin margen y con persistencia de 1 o 2 años. Sin persistencia y con margen se eliminaba 5–6 % de VIIRS, en su mayoría incendios reales cerca de fuentes estáticas. La opción elegida (364 celdas, 2041 con margen) elimina poco y deja dentro las fuentes grandes: el volcán Sabancaya, la fundición de Ilo, la planta de gas de Malvinas (Camisea), la zona de Pampa Melchorita/Pisco, Chimbote y Talara.
+- **Resultado** (focos `type=0` eliminados por la máscara):
+
+  | período | Aqua | Terra | S-NPP | NOAA-20 |
+  |---|---|---|---|---|
+  | 2002–2011 | 1.26 % | 5.18 % | — | — |
+  | 2012–2017 | 1.49 % | 7.29 % | 1.56 % | — |
+  | 2018–2022 | 0.81 % | 2.76 % | 1.52 % | 1.46 % |
+
+  Aqua pierde casi el doble antes de 2018 que después, lo que confirma el tipado deficiente de la versión 6.2. S-NPP pierde lo mismo en todos los años.
+- **Efecto en la calibración: menor de lo previsto.** La razón S-NPP/Aqua de 2012–2017 casi no cambia (5.762 → 5.759), porque la máscara también quita ~1.5 % de S-NPP en esos años. Factores finales: alta 4.98 → 4.97, media 6.69 → 6.66, baja 8.84 → 8.94 (+1.1 %; en la temporada baja las fuentes estáticas pesan más). La validación queda prácticamente igual (modelo B: error total +2.7 % → +3.8 %, MAE relativo 19.8 % → 20.0 %, corr 0.98). El mayor beneficio está en la serie 2002–2011 y en la climatología, que ya no tienen puntos industriales "eternos".

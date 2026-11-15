@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from cleaning import standardize
+from cleaning import assign_modis_sensor, flag_static, standardize
 from config import OPTIONAL_SOURCES, REQUIRED, SOURCES
 
 
@@ -50,8 +50,43 @@ def find_files(source_dirs: dict[str, Path | None], years: list[int] | None = No
     return found
 
 
-def load(info: dict) -> tuple[pd.DataFrame, dict]:
-    """Lee un archivo y devuelve el DataFrame estandarizado (sin filtrar) y estadísticas crudas."""
+def collect_static_points(files: list[dict]) -> pd.DataFrame:
+    """
+    Lee solo las detecciones type 1 (volcán) o 2 (fuente estática) de todos los archivos.
+    Columnas: latitude, longitude, year, sensor, type. Los archivos sin columna 'type' se omiten.
+    """
+    wanted = {"latitude", "longitude", "acq_date", "type", "satellite"}
+    parts = []
+    for info in files:
+        try:
+            df = pd.read_csv(info["path"], usecols=lambda c: c.strip().lower() in wanted, low_memory=False)
+        except Exception as exc:  # el error real se reporta al cargar el archivo completo
+            print(f"  [AVISO máscara] {info['path'].name}: {exc}")
+            continue
+        df.columns = [c.strip().lower() for c in df.columns]
+        if "type" not in df.columns:
+            continue
+        df["type"] = pd.to_numeric(df["type"], errors="coerce")
+        df = df[df["type"].isin([1, 2])]
+        if df.empty:
+            continue
+        sensor = assign_modis_sensor(df) if info["sensor"] is None else info["sensor"]
+        parts.append(pd.DataFrame({
+            "latitude": pd.to_numeric(df["latitude"], errors="coerce"),
+            "longitude": pd.to_numeric(df["longitude"], errors="coerce"),
+            "year": df["acq_date"].astype(str).str.slice(0, 4).astype(int),
+            "sensor": sensor,
+            "type": df["type"].astype(int),
+        }).dropna(subset=["latitude", "longitude"]))
+    cols = ["latitude", "longitude", "year", "sensor", "type"]
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=cols)
+
+
+def load(info: dict, static_keys=None, cell_deg: float | None = None) -> tuple[pd.DataFrame, dict]:
+    """
+    Lee un archivo y devuelve el DataFrame estandarizado (sin filtrar) y estadísticas crudas.
+    Si se pasan static_keys (cleaning.static_mask_keys) y cell_deg, añade la columna is_static_loc.
+    """
     df = pd.read_csv(info["path"], low_memory=False)
     df.columns = [c.strip().lower() for c in df.columns]
     missing = [c for c in REQUIRED if c not in df.columns]
@@ -60,4 +95,7 @@ def load(info: dict) -> tuple[pd.DataFrame, dict]:
 
     stats = {"rows_raw": len(df)}
     df = standardize(df, info, stats)
+    if static_keys is not None:
+        df["is_static_loc"] = flag_static(df, static_keys, cell_deg)
+        stats["static_loc_removed"] = int((df["is_veg"] & df["is_static_loc"]).sum())
     return df, stats

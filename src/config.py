@@ -63,6 +63,15 @@ OUTAGES = {
     for sensor, span in (_raw_settings.get("outages") or {}).items()
 }
 
+# Máscara de fuentes estáticas (decisión 12)
+STATIC_MASK = {
+    "enabled": True,
+    "cell_deg": 0.01,
+    "buffer_cells": 1,
+    "min_years": 2,
+    **(_raw_settings.get("static_mask") or {}),
+}
+
 # Bounding Box Perú
 PERU_BBOX = _raw_settings.get("bbox", dict(lat_min=-18.5, lat_max=0.1, lon_min=-81.5, lon_max=-68.5))
 

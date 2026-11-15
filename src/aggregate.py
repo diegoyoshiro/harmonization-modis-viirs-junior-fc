@@ -11,20 +11,25 @@ from pathlib import Path
 
 import pandas as pd
 
-from config import OUTAGES, SEASONS
-from io_firms import load
+from cleaning import build_static_mask, static_mask_keys
+from config import OUTAGES, SEASONS, STATIC_MASK
+from io_firms import collect_static_points, load
 
 METRICS = ["count", "count_with_low", "total_frp", "total_frp_with_low"]
 
 
 def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Conserva solo type==0 y agrega por día local x celda x sensor.
+    Conserva solo type==0 fuera de la máscara de fuentes estáticas (si existe la columna
+    is_static_loc) y agrega por día local x celda x sensor.
     Guarda dos versiones para poder decidir la confianza sin reprocesar:
       count / total_frp                -> sin baja confianza
       count_with_low / total_frp_with_low -> con todo
     """
-    d = df[df["is_veg"]].copy()
+    keep = df["is_veg"]
+    if "is_static_loc" in df.columns:
+        keep = keep & ~df["is_static_loc"]
+    d = df[keep].copy()
     d["count_ok"] = (~d["is_low"]).astype(int)
     d["frp_ok"] = d["frp"].where(~d["is_low"], 0.0)
     out = d.groupby(
@@ -39,13 +44,37 @@ def aggregate_daily(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def run_build(files: list[dict], out_dir: Path) -> None:
-    """Ejecuta el pipeline de build para generar la tabla agregada diaria."""
+def build_mask(mask_files: list[dict], out_dir: Path):
+    """
+    Construye la máscara de fuentes estáticas con todos los archivos disponibles (no solo los
+    años procesados, para que la máscara no dependa de --years) y la guarda en static_mask.
+    Devuelve las claves de celda (con margen) o None si la máscara está desactivada.
+    """
+    if not STATIC_MASK["enabled"]:
+        print("Máscara de fuentes estáticas: desactivada (settings.yaml -> static_mask.enabled)")
+        return None
+    points = collect_static_points(mask_files)
+    mask = build_static_mask(points, STATIC_MASK["cell_deg"], STATIC_MASK["min_years"])
+    keys = static_mask_keys(mask, STATIC_MASK["buffer_cells"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = save_table(mask, out_dir, "static_mask")
+    print(f"Máscara de fuentes estáticas: {len(points)} detecciones type 1/2 -> {len(mask)} celdas de "
+          f"{STATIC_MASK['cell_deg']}° con >= {STATIC_MASK['min_years']} años "
+          f"({len(keys)} con margen de {STATIC_MASK['buffer_cells']}) -> {target}")
+    return keys
+
+
+def run_build(files: list[dict], out_dir: Path, mask_files: list[dict] | None = None) -> None:
+    """
+    Ejecuta el pipeline de build para generar las tablas diaria y semanales.
+    mask_files: archivos con los que se construye la máscara de fuentes estáticas (por defecto, files).
+    """
+    static_keys = build_mask(mask_files or files, out_dir)
     parts, report, failures = [], [], []
     for info in files:
         name = info["path"].name
         try:
-            df, stats = load(info)
+            df, stats = load(info, static_keys, STATIC_MASK["cell_deg"])
         except Exception as exc:  # un archivo malo no debe frenar el resto
             failures.append((name, str(exc)))
             print(f"  [ERROR] {name}: {exc}")

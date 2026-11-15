@@ -35,37 +35,37 @@
     "A_count": {
       "formula": "y ~ C(week_id) + viirs",
       "family": "poisson",
-      "n_obs": 620,
-      "n_weeks": 310,
-      "pearson_dispersion": 14.443483666203127,
-      "aic": 9766.48672369626,
+      "n_obs": 618,
+      "n_weeks": 309,
+      "pearson_dispersion": 14.76789341825363,
+      "aic": 9853.005635140955,
       "converged": true
     },
     "B_count": {
       "formula": "y ~ C(week_id) + viirs:C(season)",
       "family": "poisson",
-      "n_obs": 620,
-      "n_weeks": 310,
-      "pearson_dispersion": 9.177194142306059,
-      "aic": 7912.66482386412,
+      "n_obs": 618,
+      "n_weeks": 309,
+      "pearson_dispersion": 9.351558253903189,
+      "aic": 7917.562407047881,
       "converged": true
     },
     "A_total_frp": {
       "formula": "y ~ C(week_id) + viirs",
       "family": "tweedie",
-      "n_obs": 620,
-      "n_weeks": 310,
-      "pearson_dispersion": 4.5233726324776375,
-      "aic": 10296.489127691491,
+      "n_obs": 618,
+      "n_weeks": 309,
+      "pearson_dispersion": 4.888486933302714,
+      "aic": 10261.46918968948,
       "converged": true
     },
     "B_total_frp": {
       "formula": "y ~ C(week_id) + viirs:C(season)",
       "family": "tweedie",
-      "n_obs": 620,
-      "n_weeks": 310,
-      "pearson_dispersion": 3.590266032242572,
-      "aic": 10140.145553801132,
+      "n_obs": 618,
+      "n_weeks": 309,
+      "pearson_dispersion": 3.8549095518001018,
+      "aic": 10101.208376163673,
       "converged": true
     }
   },
@@ -73,19 +73,19 @@
     "B_count": {
       "formula": "y ~ C(week_id) + viirs:C(season)",
       "family": "poisson",
-      "n_obs": 1124,
-      "n_weeks": 562,
-      "pearson_dispersion": 9.741128574096994,
-      "aic": 14709.407678424386,
+      "n_obs": 1122,
+      "n_weeks": 561,
+      "pearson_dispersion": 9.790629510224095,
+      "aic": 14666.788467387014,
       "converged": true
     },
     "B_total_frp": {
       "formula": "y ~ C(week_id) + viirs:C(season)",
       "family": "tweedie",
-      "n_obs": 1124,
-      "n_weeks": 562,
-      "pearson_dispersion": 4.054899284943843,
-      "aic": 18607.309205318015,
+      "n_obs": 1122,
+      "n_weeks": 561,
+      "pearson_dispersion": 4.22645705789407,
+      "aic": 18540.52398718735,
       "converged": true
     }
   }

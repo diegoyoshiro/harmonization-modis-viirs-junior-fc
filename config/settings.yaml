@@ -31,6 +31,12 @@ outages:                     # apagones documentados por NASA, sensor: [inicio, 
   Aqua: [2020-08-16, 2020-09-02]   # falla del FMU de Aqua (MODIS C6 Fire User Guide rev. C, sec. 7.2.4)
   SNPP: [2022-07-27, 2022-08-10]   # apagón de S-NPP VIIRS (VIIRS C2 Burned Area User Guide v1.1, sec. 8.2)
 
+static_mask:                 # ubicaciones estáticas (type 1/2 en cualquier sensor y año) excluidas de todos los años
+  enabled: true
+  cell_deg: 0.01             # celda de la máscara (~1,1 km, tamaño del píxel MODIS)
+  buffer_cells: 1            # margen en celdas alrededor de cada celda estática (error de geolocalización MODIS)
+  min_years: 2               # años distintos con type 1/2 para considerar la ubicación estática (persistencia)
+
 alerts:
   max_gap_days: 3
   max_low_conf_pct: 40.0
