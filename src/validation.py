@@ -205,3 +205,203 @@ def run_validation(factors: pd.DataFrame, df_weekly: pd.DataFrame, validation_ye
                         plot_dir / "calibration_validation.png")
 
     return {"validation": validation, "by_year": by_year, "monthly": monthly, "control": control}
+
+
+# ---------------------------------------------------------------------------
+# Predicción MODIS (Aqua × factor) hasta el último año y comparación con S-NPP
+# ---------------------------------------------------------------------------
+PERIODS = {
+    "2012-2017 calibración": (2012, 2017),
+    "2018-2022 validación": (2018, 2022),
+    "2023-2024 fuera de ventana (deriva Aqua)": (2023, 2024),
+}
+
+
+def predict_vs_viirs(df_weekly: pd.DataFrame, factors: pd.DataFrame, model: str, years: list[int],
+                     bands: pd.DataFrame | None = None, metric: str = "count",
+                     target: str = TARGET_SENSOR) -> pd.DataFrame:
+    """
+    Aqua × factor semana a semana en `years`, emparejado con el VIIRS observado (`target`).
+    Si se pasan `bands` (harmonization_bands.csv), agrega band_inf/band_sup (banda de predicción).
+    """
+    pairs = paired_weeks(df_weekly, years, metric, REF_SENSOR, target)
+    p = predict_target(pairs, factors, model, metric)
+    if bands is not None:
+        out_name = "count" if metric == "count" else "frp"
+        q = bands[bands["metric"] == out_name].set_index("season")
+        p["band_inf"] = p["pred"] * p["season"].map(q["q_inf"])
+        p["band_sup"] = p["pred"] * p["season"].map(q["q_sup"])
+    return p
+
+
+def _period_metrics(p: pd.DataFrame, label: str) -> dict:
+    m = _metrics(p)
+    if "band_inf" in p:
+        m["coverage_band90_pct"] = float(100 * p["target"].between(p["band_inf"], p["band_sup"]).mean())
+    tot = p.groupby("iso_year")[["target", "pred"]].sum()
+    err_year = 100 * (tot["pred"] - tot["target"]) / tot["target"]
+    m["max_abs_error_anual_pct"] = float(err_year.abs().max())
+    return {"periodo": label, **m}
+
+
+def prediction_report(df_weekly: pd.DataFrame, final_factors: pd.DataFrame, calibration_factors: pd.DataFrame,
+                      model: str, bands: pd.DataFrame, out_dir: Path, plot_dir: Path | None = None,
+                      last_year: int = 2024) -> dict:
+    """
+    Predice con MODIS Aqua × factor desde 2002 hasta last_year y lo compara con S-NPP (2012-last_year).
+
+    Dos juegos de factores:
+        * final (2012-2022): el que usa la serie única. En 2012-2022 es en muestra; 2023-2024 no.
+        * calibración (2012-2017): prueba honesta, fuera de muestra desde 2018.
+    Guarda prediction_vs_snpp_weekly.csv, prediction_vs_snpp_annual.csv, prediction_vs_snpp_metrics.csv
+    y output/reports/prediction_vs_snpp.png.
+    """
+    sets = {"final 2012-2022": final_factors[final_factors["model"] == model],
+            "calibración 2012-2017": calibration_factors[calibration_factors["model"] == model]}
+    years = list(range(2012, last_year + 1))
+    weekly, annual, metrics = [], [], []
+    for name, f in sets.items():
+        for metric in ("count", "total_frp"):
+            p = predict_vs_viirs(df_weekly, f, model, years, bands, metric)
+            p = p.assign(factores=name, metric=metric)
+            weekly.append(p)
+            tot = p.groupby("iso_year")[["target", "pred"]].sum().reset_index()
+            tot["error_pct"] = 100 * (tot["pred"] - tot["target"]) / tot["target"]
+            annual.append(tot.assign(factores=name, metric=metric))
+            for label, (lo, hi) in PERIODS.items():
+                g = p[p["iso_year"].between(lo, hi)]
+                if len(g) > 1:
+                    metrics.append({"factores": name, "metric": metric, **_period_metrics(g, label)})
+            metrics.append({"factores": name, "metric": metric, **_period_metrics(p, f"2012-{last_year} total")})
+    weekly = pd.concat(weekly, ignore_index=True).rename(columns={"ref": "aqua", "target": "snpp"})
+    annual = pd.concat(annual, ignore_index=True).rename(columns={"target": "snpp"})
+    metrics = pd.DataFrame(metrics)
+    weekly.to_csv(out_dir / "prediction_vs_snpp_weekly.csv", index=False)
+    annual.to_csv(out_dir / "prediction_vs_snpp_annual.csv", index=False)
+    metrics.to_csv(out_dir / "prediction_vs_snpp_metrics.csv", index=False)
+
+    cols = ["factores", "metric", "periodo", "n_weeks", "error_total_pct", "corr", "mae_rel_pct",
+            "coverage_band90_pct", "max_abs_error_anual_pct"]
+    print("\nPredicción MODIS (Aqua × factor) vs S-NPP observado:")
+    print(metrics[cols].round(2).to_string(index=False))
+
+    if plot_dir is not None:
+        # Predicción completa 2002-last_year (sin emparejar) para el panel superior
+        full = df_weekly[(df_weekly["sensor"] == REF_SENSOR) & df_weekly["iso_year"].between(2002, last_year)
+                         & (df_weekly["days_with_data"] > 0)]
+        full = predict_target(full.rename(columns={"count": "ref"}), sets["final 2012-2022"], model, "count")
+        plot_prediction(full, weekly, annual, metrics, bands, plot_dir / "prediction_vs_snpp.png", last_year)
+    return {"weekly": weekly, "annual": annual, "metrics": metrics}
+
+
+def plot_prediction(full: pd.DataFrame, weekly: pd.DataFrame, annual: pd.DataFrame, metrics: pd.DataFrame,
+                    bands: pd.DataFrame, path: Path, last_year: int) -> None:
+    """Figura de 5 paneles: serie semanal, totales anuales, dispersión, error anual y tabla de métricas."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    c_pred, c_obs = "tab:blue", "tab:orange"
+    fig = plt.figure(figsize=(16, 13))
+    gs = fig.add_gridspec(3, 2, height_ratios=[1.1, 1, 1], width_ratios=[1.6, 1])
+
+    # 1) Serie semanal 2002-last_year: predicción MODIS y S-NPP observado
+    ax = fig.add_subplot(gs[0, :])
+    q = bands[bands["metric"] == "count"].set_index("season")
+    full = full.sort_values("week")
+    ax.fill_between(full["week"], full["pred"] * full["season"].map(q["q_inf"]),
+                    full["pred"] * full["season"].map(q["q_sup"]), color=c_pred, alpha=0.18, lw=0,
+                    label="banda de predicción 90 %")
+    ax.plot(full["week"], full["pred"], color=c_pred, lw=0.9, label="predicción MODIS Aqua × factor")
+    w = weekly[(weekly["factores"] == "final 2012-2022") & (weekly["metric"] == "count")].sort_values("week")
+    ax.plot(w["week"], w["snpp"], color=c_obs, lw=0.9, alpha=0.9, label="VIIRS S-NPP observado")
+    ax.axvspan(pd.Timestamp("2012-01-01"), pd.Timestamp("2023-01-01"), color="0.85", alpha=0.35, lw=0)
+    ax.axvspan(pd.Timestamp("2023-01-01"), pd.Timestamp(f"{last_year + 1}-01-01"), color="tab:red",
+               alpha=0.08, lw=0)
+    ymax = max(full["pred"].max(), w["snpp"].max())
+    ax.set_ylim(0, ymax * 1.08)
+    ax.text(pd.Timestamp("2007-01-01"), ymax * 1.02, "solo MODIS (sin VIIRS para comparar)", ha="center", fontsize=9)
+    ax.text(pd.Timestamp("2017-07-01"), ymax * 1.02, "ventana del factor final (2012-2022)", ha="center", fontsize=9)
+    ax.text(pd.Timestamp("2024-01-01"), ymax * 1.02, "fuera de muestra", ha="center", fontsize=9)
+    ax.set_title(f"Predicción con MODIS (Aqua × factor por temporada, modelo B) vs VIIRS S-NPP, Perú 2002-{last_year}")
+    ax.set_ylabel("focos por semana")
+    ax.legend(loc="upper left", bbox_to_anchor=(0, 0.93), fontsize=8)
+
+    # 2) Totales anuales
+    ax = fig.add_subplot(gs[1, 0])
+    a = annual[(annual["factores"] == "final 2012-2022") & (annual["metric"] == "count")]
+    x = np.arange(len(a))
+    ax.bar(x - 0.2, a["snpp"], 0.4, color=c_obs, label="S-NPP observado")
+    ax.bar(x + 0.2, a["pred"], 0.4, color=c_pred, label="MODIS × factor")
+    for xi, (_, r) in zip(x, a.iterrows()):
+        ax.text(xi, max(r["snpp"], r["pred"]) * 1.01, f"{r['error_pct']:+.1f}%", ha="center", fontsize=8,
+                color="tab:red" if abs(r["error_pct"]) > 5 else "k")
+    ax.set_xticks(x)
+    ax.set_xticklabels(a["iso_year"], rotation=45)
+    ax.set_ylim(0, max(a["snpp"].max(), a["pred"].max()) * 1.15)
+    ax.set_ylabel("focos por año (semanas comparables)")
+    ax.set_title("Total anual: error de la predicción (factor final)")
+    ax.legend(fontsize=8, loc="upper left")
+
+    # 3) Dispersión semanal en escala log
+    ax = fig.add_subplot(gs[1, 1])
+    colors = {"alta": "tab:red", "media": "tab:olive", "baja": "tab:cyan"}
+    for season, g in w.groupby("season"):
+        ax.scatter(g["snpp"].clip(lower=1), g["pred"].clip(lower=1), s=7, alpha=0.6,
+                   color=colors.get(season), label=f"temporada {season}")
+    lim = [1, max(w["snpp"].max(), w["pred"].max()) * 1.3]
+    ax.plot(lim, lim, color="k", lw=1, ls="--")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(lim)
+    ax.set_ylim(lim)
+    ax.set_xlabel("S-NPP observado (focos/semana)")
+    ax.set_ylabel("MODIS × factor")
+    m = metrics[(metrics["factores"] == "final 2012-2022") & (metrics["metric"] == "count")
+                & metrics["periodo"].str.endswith("total")].iloc[0]
+    ax.set_title(f"Semanal 2012-{last_year}: r = {m['corr']:.3f}, MAE rel. = {m['mae_rel_pct']:.0f} %")
+    ax.legend(fontsize=8, loc="upper left")
+
+    # 4) Error anual por juego de factores (conteo y FRP)
+    ax = fig.add_subplot(gs[2, 0])
+    styles = {("final 2012-2022", "count"): ("tab:blue", "-", "o"),
+              ("calibración 2012-2017", "count"): ("tab:blue", "--", "s"),
+              ("final 2012-2022", "total_frp"): ("tab:purple", "-", "o"),
+              ("calibración 2012-2017", "total_frp"): ("tab:purple", "--", "s")}
+    for (fname, metric), (color, ls, mk) in styles.items():
+        g = annual[(annual["factores"] == fname) & (annual["metric"] == metric)]
+        ax.plot(g["iso_year"], g["error_pct"], color=color, ls=ls, marker=mk, ms=4,
+                label=f"{'conteo' if metric == 'count' else 'FRP'} · factores {fname}")
+    ax.axhspan(-5, 5, color="tab:green", alpha=0.1, lw=0)
+    ax.axhline(0, color="k", lw=0.8)
+    ax.axvline(2017.5, color="0.4", ls=":", lw=1)
+    ax.axvline(2022.5, color="0.4", ls=":", lw=1)
+    ax.set_xticks(sorted(annual["iso_year"].unique()))
+    ax.set_ylabel("error anual (%)  (+ = sobreestima)")
+    ax.set_title("Error anual vs S-NPP (franja verde = ±5 %)")
+    ax.legend(fontsize=7, ncol=2, loc="upper left")
+
+    # 5) Tabla de métricas (conteo)
+    ax = fig.add_subplot(gs[2, 1])
+    ax.axis("off")
+    t = metrics[metrics["metric"] == "count"]
+    short = {"calibración": "calib.", "validación": "valid.", "fuera de ventana (deriva Aqua)": "deriva"}
+
+    def _short(label: str) -> str:
+        years, _, rest = label.partition(" ")
+        lo, hi = years.split("-")
+        return f"{lo}-{hi[2:]} {short.get(rest, rest)}"
+
+    rows = [[r["factores"].split()[0], _short(r["periodo"]),
+             f"{r['error_total_pct']:+.1f}", f"{r['corr']:.3f}", f"{r['mae_rel_pct']:.0f}",
+             f"{r['coverage_band90_pct']:.0f}"] for _, r in t.iterrows()]
+    tab = ax.table(cellText=rows, colLabels=["factores", "período", "error total %", "r", "MAE rel. %",
+                                             "en banda 90 %"], loc="center", cellLoc="center")
+    tab.auto_set_font_size(False)
+    tab.set_fontsize(8)
+    tab.scale(1, 1.35)
+    ax.set_title("Precisión semanal del conteo (vs S-NPP)", fontsize=10)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)

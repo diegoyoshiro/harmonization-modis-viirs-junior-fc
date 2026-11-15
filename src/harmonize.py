@@ -424,6 +424,10 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
     for k, v in coverage.items():
         print(f"  {k}: " + ", ".join(f"{m} {d['coverage_pct']:.0f} % de {d['n_weeks']} semanas" for m, d in v.items()))
 
+    from validation import prediction_report
+    prediction = prediction_report(df_weekly, final_factors, calibration_factors, model, bands,
+                                   out_dir, plot_dir, last_year=int(series["iso_year"].max()))
+
     cell = None
     if df_weekly_cell is not None:
         cell_fit = {k: v for k, v in fit.items() if k != "bands"}  # bandas empíricas solo a nivel nacional
@@ -452,4 +456,5 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
         plot_harmonized(series, annual, check, plot_dir / "harmonized_series.png")
 
     print(f"\nTablas guardadas en: {out_dir}")
-    return {"series": series, "annual": annual, "cell": cell, "bands": bands, "check": check}
+    return {"series": series, "annual": annual, "cell": cell, "bands": bands, "check": check,
+            "prediction": prediction}

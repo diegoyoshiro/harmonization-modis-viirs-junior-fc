@@ -123,7 +123,7 @@ Requiere haber ejecutado `calibrate`. Aplica el factor final por temporada a Aqu
 ```bash
 python src/cli.py harmonize
 ```
-*Salidas generadas*: `output/processed/` (`harmonized_weekly.csv` con la serie nacional, `fuente`, `calidad` y bandas; `harmonized_weekly_cell.parquet` por celda de 0.25°; `harmonized_annual.csv`; `harmonization_bands.csv`; `harmonization_backcast_check.csv`; `harmonize_summary.json`) y `output/reports/harmonized_series.png`.
+*Salidas generadas*: `output/processed/` (`harmonized_weekly.csv` con la serie nacional, `fuente`, `calidad` y bandas; `harmonized_weekly_cell.parquet` por celda de 0.25°; `harmonized_annual.csv`; `harmonization_bands.csv`; `harmonization_backcast_check.csv`; `harmonize_summary.json`; `prediction_vs_snpp_weekly.csv`, `_annual.csv` y `_metrics.csv`, que comparan la predicción MODIS × factor con S-NPP en 2012–2024) y `output/reports/harmonized_series.png` y `prediction_vs_snpp.png`.
 
 ### E. Personalización de Rutas
 Es posible especificar carpetas personalizadas vía argumentos CLI:
