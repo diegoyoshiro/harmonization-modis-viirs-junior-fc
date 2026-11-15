@@ -106,6 +106,7 @@ def main() -> None:
             validation_years=years_from_window(WINDOWS["validation"]),
             out_dir=out_dir,
             plot_dir=REPORTS_DIR,
+            df_daily=load_table(INTERIM_DIR, "daily_cell_sensor"),
         )
         return
 

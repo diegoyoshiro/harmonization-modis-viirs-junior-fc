@@ -367,10 +367,128 @@ def plot_harmonized(series: pd.DataFrame, annual: pd.DataFrame, check: pd.DataFr
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# Serie mensual (calendario año × mes)
+# ---------------------------------------------------------------------------
+SENSOR_OF_SOURCE = {"estimado": REF_SENSOR, **{v: k for k, v in SOURCE_LABELS.items()}}
+
+
+def _month_season() -> dict[int, str]:
+    from config import SEASONS
+    return {m: s for s, months in SEASONS.items() for m in months}
+
+
+def _daily_with_source(df_daily: pd.DataFrame, series: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Asigna a cada día el sensor que la serie semanal eligió para su semana ISO.
+    Devuelve (filas diarias del sensor elegido, calendario de días con su fuente).
+    """
+    days = pd.DataFrame({"local_date": pd.date_range(series["week"].min(),
+                                                     series["week"].max() + pd.Timedelta(days=6))})
+    days["week"] = days["local_date"] - pd.to_timedelta(days["local_date"].dt.weekday, unit="D")
+    days = days.merge(series[["week", "fuente"]].drop_duplicates("week"), on="week", how="inner")
+    days["sensor"] = days["fuente"].map(SENSOR_OF_SOURCE)  # NaN en "sin dato"
+    rows = df_daily.merge(days[["local_date", "sensor", "fuente"]].dropna(subset=["sensor"]),
+                          on=["local_date", "sensor"], how="inner")
+    return rows, days
+
+
+def monthly_bands(df_daily: pd.DataFrame, df_weekly: pd.DataFrame, calibration_factors: pd.DataFrame,
+                  model: str, validation_years: list[int], coverage: float | None = None) -> pd.DataFrame:
+    """
+    Cuantiles de observado/predicho mensuales en validación (factores de calibración, fuera de muestra).
+
+    Solo se usan días de semanas válidas para la comparación Aqua-S-NPP (paired_weeks), así que ambos
+    sensores se suman sobre los mismos días. Devuelve (metric, season, q_inf, q_med, q_sup, n_months).
+    """
+    coverage = HARMONIZE["band_coverage"] if coverage is None else coverage
+    lo, hi = (1 - coverage) / 2, 1 - (1 - coverage) / 2
+    season_of = _month_season()
+    ft = _factor_table(calibration_factors[calibration_factors["model"] == model]).set_index("season")
+    rows = []
+    for out_name, col in METRICS.items():
+        weeks = set(paired_weeks(df_weekly, validation_years, col)["week"])
+        d = df_daily[df_daily["sensor"].isin([REF_SENSOR, "SNPP"])].copy()
+        d["week"] = d["local_date"] - pd.to_timedelta(d["local_date"].dt.weekday, unit="D")
+        d = d[d["week"].isin(weeks)]
+        d["ym"] = d["local_date"].dt.to_period("M")
+        m = d.pivot_table(index="ym", columns="sensor", values=col, aggfunc="sum").fillna(0.0)
+        m["season"] = [season_of[p.month] for p in m.index]
+        m["pred"] = m[REF_SENSOR] * m["season"].map(ft[f"factor_{out_name}"])
+        m = m[m["pred"] > 0]
+        ratio = m["SNPP"] / m["pred"]
+        for season, r in ratio.groupby(m["season"]):
+            rows.append({"metric": out_name, "season": season, "q_inf": float(r.quantile(lo)),
+                         "q_med": float(r.median()), "q_sup": float(r.quantile(hi)), "n_months": int(len(r))})
+    return pd.DataFrame(rows)
+
+
+def harmonize_monthly(df_daily: pd.DataFrame, series: pd.DataFrame, factors: pd.DataFrame,
+                      bands: pd.DataFrame | None = None, by_cell: bool = False) -> pd.DataFrame:
+    """
+    Serie única mensual a partir de la tabla diaria, con la misma fuente que eligió cada semana.
+
+    En los días "estimado" se suma Aqua y el total del mes se multiplica por el factor de la
+    temporada del mes (el factor se aplica al agregado mensual, no a focos sueltos). Los días de
+    semanas "sin dato" no suman: el mes queda con calidad "incompleto" y dias_sin_dato > 0.
+
+    Salidas: year, month, [cell, lat_c, lon_c], tramo, fuente, calidad, dias_*, count, frp
+    (+ count_inf/sup y frp_inf/sup si se pasan bandas mensuales; solo a nivel nacional).
+    """
+    season_of = _month_season()
+    ft = _factor_table(factors).set_index("season")
+    rows, days = _daily_with_source(df_daily, series)
+    keys = ["year", "month"] + (CELL_KEYS if by_cell else [])
+    rows["year"], rows["month"] = rows["local_date"].dt.year, rows["local_date"].dt.month
+    rows["est"] = rows["fuente"].eq("estimado")
+
+    agg = {}
+    for k, col in METRICS.items():
+        rows[f"{k}_est"] = rows[col].where(rows["est"], 0.0)
+        rows[f"{k}_real"] = rows[col].where(~rows["est"], 0.0)
+        agg.update({f"{k}_est": (f"{k}_est", "sum"), f"{k}_real": (f"{k}_real", "sum")})
+    out = rows.groupby(keys, as_index=False).agg(**agg)
+
+    # Calendario: días por fuente en cada mes (nacional; es el mismo para todas las celdas)
+    days["year"], days["month"] = days["local_date"].dt.year, days["local_date"].dt.month
+    cal = (days.assign(est=days["fuente"].eq("estimado"), nan=days["fuente"].eq("sin dato"))
+               .groupby(["year", "month"])
+               .agg(dias=("local_date", "size"), dias_estimado=("est", "sum"), dias_sin_dato=("nan", "sum"),
+                    fuentes=("fuente", lambda s: "+".join(sorted(set(s) - {"sin dato"}))))
+               .reset_index())
+    cal["dias_mes"] = pd.to_datetime(dict(year=cal["year"], month=cal["month"], day=1)).dt.days_in_month
+    if by_cell:
+        out = out.merge(cal, on=["year", "month"], how="left")
+    else:
+        out = cal.merge(out, on=["year", "month"], how="left")
+        for k in METRICS:
+            out[[f"{k}_est", f"{k}_real"]] = out[[f"{k}_est", f"{k}_real"]].fillna(0.0)
+
+    out["season"] = out["month"].map(season_of)
+    for k in METRICS:
+        f = out["season"].map(ft[f"factor_{k}"])
+        est = out[f"{k}_est"] * f
+        out[k] = out[f"{k}_real"] + est
+        if bands is not None and not by_cell:
+            q = bands[bands["metric"] == k].set_index("season")
+            out[f"{k}_inf"] = out[f"{k}_real"] + est * out["season"].map(q["q_inf"])
+            out[f"{k}_sup"] = out[f"{k}_real"] + est * out["season"].map(q["q_sup"])
+    lo, hi = HARMONIZE["estimated"]
+    out["tramo"] = np.where(out["year"].between(lo, hi), "estimado", "VIIRS real")
+    out["fuente"] = out["fuentes"]
+    out["calidad"] = np.select([out["dias_sin_dato"] > 0, out["dias"] < out["dias_mes"],
+                                (out["dias_estimado"] > 0) & (out["tramo"] == "VIIRS real")],
+                               ["incompleto", "parcial", "relleno"], default="ok")
+    cols = keys + ["season", "tramo", "fuente", "calidad", "dias_mes", "dias", "dias_estimado", "dias_sin_dato"]
+    for k in METRICS:
+        cols += [k] + ([f"{k}_inf", f"{k}_sup"] if f"{k}_inf" in out else [])
+    return out[cols].sort_values(keys).reset_index(drop=True)
+
+
 def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | None,
                       final_factors: pd.DataFrame, calibration_factors: pd.DataFrame, model: str,
                       validation_years: list[int], out_dir: Path, plot_dir: Path | None = None,
-                      target_years: list[int] | None = None) -> dict:
+                      target_years: list[int] | None = None, df_daily: pd.DataFrame | None = None) -> dict:
     """
     Pasos 7-8 del explainer: aplica el factor final a Aqua 2002-2011, une con VIIRS real y guarda
     la serie única nacional y por celda, los totales anuales, las bandas y los diagnósticos.
@@ -428,6 +546,24 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
     prediction = prediction_report(df_weekly, final_factors, calibration_factors, model, bands,
                                    out_dir, plot_dir, last_year=int(series["iso_year"].max()))
 
+    monthly = monthly_cell = None
+    if df_daily is not None:
+        mbands = monthly_bands(df_daily, df_weekly, calibration_factors, model, validation_years)
+        mbands.to_csv(out_dir / "harmonization_bands_monthly.csv", index=False)
+        print(f"\nBandas de predicción mensual ({HARMONIZE['band_coverage']:.0%}):")
+        print(mbands.round(3).to_string(index=False))
+        monthly = harmonize_monthly(df_daily, series, factors, mbands)
+        monthly.to_csv(out_dir / "harmonized_monthly.csv", index=False)
+        monthly_cell = harmonize_monthly(df_daily, series, factors, by_cell=True)
+        path = save_table(monthly_cell, out_dir, "harmonized_monthly_cell")
+        diff_w = abs(monthly["count"].sum() - series["count"].sum())
+        diff_c = (monthly_cell.groupby(["year", "month"])["count"].sum()
+                  - monthly.set_index(["year", "month"])["count"]).abs().max()
+        print(f"Serie mensual: {len(monthly)} meses ({monthly['calidad'].value_counts().to_dict()}); "
+              f"por celda: {len(monthly_cell)} filas -> {path.name}")
+        print(f"  control: |total mensual - total semanal| = {diff_w:.1f} (difiere solo por el factor del "
+              f"mes vs el de la semana en semanas que cruzan temporadas); máx. |celdas - nacional| = {diff_c:.2e}")
+
     cell = None
     if df_weekly_cell is not None:
         cell_fit = {k: v for k, v in fit.items() if k != "bands"}  # bandas empíricas solo a nivel nacional
@@ -457,4 +593,4 @@ def run_harmonization(df_weekly: pd.DataFrame, df_weekly_cell: pd.DataFrame | No
 
     print(f"\nTablas guardadas en: {out_dir}")
     return {"series": series, "annual": annual, "cell": cell, "bands": bands, "check": check,
-            "prediction": prediction}
+            "prediction": prediction, "monthly": monthly, "monthly_cell": monthly_cell}
