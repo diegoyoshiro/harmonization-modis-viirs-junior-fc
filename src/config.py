@@ -75,6 +75,13 @@ HARMONIZE = {
     "band_coverage": float(_harm.get("band_coverage", 0.90)),
 }
 
+# Climatología: línea base y áreas de interés (rectángulos lat_min, lat_max, lon_min, lon_max)
+_clim = _raw_settings.get("climatology") or {}
+CLIMATOLOGY = {
+    "baseline": [int(y) for y in _clim.get("baseline", [2003, 2024])],
+    "aois": {k[len("aoi_"):]: [float(v) for v in vals] for k, vals in _clim.items() if k.startswith("aoi_")},
+}
+
 # Máscara de fuentes estáticas (decisión 12)
 STATIC_MASK = {
     "enabled": True,

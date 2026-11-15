@@ -11,9 +11,10 @@ Comandos principales:
 
     harmonize : Serie única 2002-hoy: Aqua × factor (2002-2011, "estimado") + VIIRS real
                 (S-NPP, NOAA-20 de respaldo), nacional y por celda (requiere calibrate).
+    climatology : Línea base 2003-2024, anomalías, ranking anual y calendario año × mes (Perú y
+                áreas de interés de settings.yaml); requiere harmonize.
 
 Comandos previstos (stubs):
-    climatology : Cálculo de climatología y anomalías.
     export      : Exportación de datos para el frontend web.
 """
 
@@ -28,6 +29,7 @@ from audit import run_audit
 from calibration import run_calibration, years_from_window
 from validation import run_validation
 from harmonize import run_harmonization
+from climatology import run_climatology
 from config import (
     INTERIM_DIR,
     MODIS_DIR,
@@ -56,7 +58,7 @@ def main() -> None:
     parser.add_argument("--noaa21-dir", help=f"carpeta de NOAA-21 (por defecto {NOAA21_DIR}; opcional)")
     parser.add_argument("--out-dir", default=None,
                         help="carpeta de salida (por defecto output/reports para audit, output/interim "
-                             "para build, output/processed para calibrate, validate y harmonize)")
+                             "para build, output/processed para calibrate, validate, harmonize y climatology)")
     parser.add_argument("--years", type=int, nargs="+",
                         help="usar solo estos años (ignora el rango del script)")
     parser.add_argument("--all-years", action="store_true",
@@ -64,7 +66,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Comandos stub
-    if args.command in ["climatology", "export"]:
+    if args.command in ["export"]:
         raise NotImplementedError(f"El comando '{args.command}' está planificado como módulo stub.")
 
     # Comandos que parten de las tablas de output/interim (no leen los CSV crudos)
@@ -107,6 +109,25 @@ def main() -> None:
             out_dir=out_dir,
             plot_dir=REPORTS_DIR,
             df_daily=load_table(INTERIM_DIR, "daily_cell_sensor"),
+        )
+        return
+    if args.command == "climatology":
+        import pandas as pd
+        out_dir = Path(args.out_dir) if args.out_dir else PROCESSED_DIR
+        needed = ["harmonized_weekly.csv", "harmonized_monthly.csv"]
+        absent = [n for n in needed if not (PROCESSED_DIR / n).exists()]
+        if absent:
+            sys.exit(f"Faltan {absent} en {PROCESSED_DIR}: ejecuta primero 'harmonize'.")
+        try:
+            monthly_cell = load_table(PROCESSED_DIR, "harmonized_monthly_cell")
+        except FileNotFoundError:
+            monthly_cell = None
+        run_climatology(
+            pd.read_csv(PROCESSED_DIR / "harmonized_weekly.csv", parse_dates=["week"]),
+            pd.read_csv(PROCESSED_DIR / "harmonized_monthly.csv"),
+            monthly_cell,
+            out_dir=out_dir,
+            plot_dir=REPORTS_DIR,
         )
         return
 

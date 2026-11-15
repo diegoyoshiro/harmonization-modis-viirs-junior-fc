@@ -37,6 +37,10 @@ harmonize:                   # serie única: Aqua x factor (estimado) + VIIRS re
   aqua_gaps: [2002-07-30, 2002-08-07, 2022-03-31, 2022-04-16]   # faltas de dato de Aqua no documentadas por NASA, pares inicio-fin (inclusivos); sus semanas quedan NaN
   band_coverage: 0.90        # cobertura de la banda de predicción semanal (cuantiles empíricos de validación)
 
+climatology:                 # línea base y anomalías sobre la serie única
+  baseline: [2003, 2024]     # años completos (2002 empieza en julio y tiene semanas sin dato)
+  aoi_cusco: [-15.8, -11.2, -74.0, -70.3]   # PROVISIONAL: rectángulo lat_min, lat_max, lon_min, lon_max que contiene Cusco (incluye bordes de regiones vecinas)
+
 static_mask:                 # ubicaciones estáticas (type 1/2 en cualquier sensor y año) excluidas de todos los años
   enabled: true
   cell_deg: 0.01             # celda de la máscara (~1,1 km, tamaño del píxel MODIS)
