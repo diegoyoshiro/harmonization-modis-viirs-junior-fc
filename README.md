@@ -28,7 +28,7 @@ proyecto/
 │   ├── calibration.py        # GLM semanal Aqua→S-NPP: calibración, selección del modelo y factor final
 │   ├── validation.py         # Validación en años retenidos contra S-NPP y NOAA-20, año a año
 │   ├── harmonize.py          # Serie única: Aqua × factor (2002-2011) + VIIRS real (S-NPP/NOAA-20), con bandas
-│   ├── climatology.py        # STUB: Mediana histórica, percentiles y cálculo de anomalías
+│   ├── climatology.py        # Línea base 2003-2024, anomalías con semáforo, ranking anual y calendario año × mes
 │   ├── export_web.py         # STUB: Exportación JSON/CSV de entrega final
 │   ├── cli.py                # Interfaz CLI central del proyecto
 │   └── legacy/               # Código monolítico original de referencia
@@ -125,7 +125,14 @@ python src/cli.py harmonize
 ```
 *Salidas generadas*: `output/processed/` (`harmonized_weekly.csv` con la serie nacional, `fuente`, `calidad` y bandas; `harmonized_weekly_cell.parquet` por celda de 0.25°; `harmonized_annual.csv`; `harmonization_bands.csv`; `harmonization_backcast_check.csv`; `harmonize_summary.json`; `prediction_vs_snpp_weekly.csv`, `_annual.csv` y `_metrics.csv`, que comparan la predicción MODIS × factor con S-NPP en 2012–2024) y `output/reports/harmonized_series.png` y `prediction_vs_snpp.png`.
 
-### E. Personalización de Rutas
+### E. Climatología y calendario (`climatology`)
+Requiere haber ejecutado `harmonize`. Calcula la línea base 2003–2024 por mes y por semana del año, las anomalías (percentil y semáforo), el ranking de años y el calendario año × mes para Perú y para las áreas de interés de `settings.yaml` (`climatology.aoi_*`):
+```bash
+python src/cli.py climatology
+```
+*Salidas generadas*: `output/processed/` (`climatology_monthly.csv`, `climatology_weekly.csv`, `anomalies_monthly.csv`, `anomalies_weekly.csv`, `annual_ranking.csv`, `climatology_summary.json`) y `output/reports/` (`calendar_peru.png`, `calendar_cusco.png`, `climatology_weekly_peru.png`).
+
+### F. Personalización de Rutas
 Es posible especificar carpetas personalizadas vía argumentos CLI:
 ```bash
 python src/cli.py audit --modis-dir ruta/a/modis --snpp-dir ruta/a/snpp --out-dir ruta/salida

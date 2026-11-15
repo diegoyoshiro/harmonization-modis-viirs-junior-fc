@@ -46,8 +46,9 @@ Se ejecutan **desde la raíz**: `python src/cli.py <comando>`. Los módulos de `
 | `build [--years ...] [--all-years]` | Implementado | `output/interim/static_mask`, `daily_cell_sensor`, `weekly_sensor`, `weekly_cell_sensor` (.parquet), `build_summary.csv` |
 | `calibrate` | Implementado (lee `output/interim/weekly_sensor`) | `output/processed/calibration_factors.csv`, `validation_metrics.csv`, `validation_by_year.csv`, `validation_monthly.csv`, `validation_noaa20_snpp.csv`, `harmonization_factors.csv` (factor final), `calibration_summary.json`; `output/reports/calibration_validation.png` |
 | `validate` | Implementado (lee `calibration_factors.csv` y `weekly_sensor`) | Rehace solo las tablas `validation_*.csv` |
-| `harmonize` | Implementado (lee `weekly_sensor`, `weekly_cell_sensor` y los factores de `calibrate`) | `output/processed/harmonized_weekly.csv` (serie única nacional), `harmonized_weekly_cell` (.parquet), `harmonized_annual.csv`, `harmonization_bands.csv`, `harmonization_backcast_check.csv`, `harmonize_summary.json`, `prediction_vs_snpp_*.csv` (MODIS × factor vs S-NPP 2012–2024); `output/reports/harmonized_series.png`, `prediction_vs_snpp.png` |
-| `climatology`, `export` | Vacíos (lanzan `NotImplementedError`) | — |
+| `harmonize` | Implementado (lee `weekly_sensor`, `weekly_cell_sensor` y los factores de `calibrate`) | `output/processed/harmonized_weekly.csv` (serie única nacional), `harmonized_weekly_cell` (.parquet), `harmonized_annual.csv`, `harmonization_bands.csv`, `harmonization_backcast_check.csv`, `harmonize_summary.json`, `prediction_vs_snpp_*.csv` (MODIS × factor vs S-NPP 2012–2024), `harmonized_monthly.csv` + `harmonized_monthly_cell` (serie mensual desde la tabla diaria) y `harmonization_bands_monthly.csv`; `output/reports/harmonized_series.png`, `prediction_vs_snpp.png` |
+| `climatology` | Implementado (lee `harmonized_weekly.csv`, `harmonized_monthly.csv`, `harmonized_monthly_cell`) | `output/processed/climatology_monthly.csv`, `climatology_weekly.csv`, `anomalies_monthly.csv`, `anomalies_weekly.csv`, `annual_ranking.csv`, `climatology_summary.json`; `output/reports/calendar_peru.png`, `calendar_cusco.png`, `climatology_weekly_peru.png` |
+| `export` | Vacío (lanza `NotImplementedError`) | — |
 
 Sin `--years` ni `--all-years`, ambos comandos usan `years.min`–`years.max` de `config/settings.yaml` (2012–2017). Para que los pasos posteriores tengan 2002–2024, ejecuta `build --all-years` (tarda ~1 min con los 43 archivos).
 
@@ -126,7 +127,8 @@ dataset/*.csv
      - Bandas: `*_ic_inf/sup` (IC del factor) y `*_inf/sup` (banda de predicción semanal del 90 %, cuantiles de observado/predicho por temporada en validación, fuera de muestra). Cubre 88–90 % de las semanas en 2023–2024 (S-NPP y NOAA-20). Total anual: razón anual mín./máx. de validación (conteo 0.92–1.05; FRP 0.81–1.00, el FRP estimado tiene un sesgo de ~+12 %).
      - Por celda solo hay bandas IC del factor; la suma de celdas coincide con la serie nacional.
      - Pendiente: modelo C (zona) y usarlo en la serie por celda/Cusco.
-  2. `climatology` (mediana y percentiles por semana del año, anomalías).
+  2. ~~`climatology`~~ **hecho** (decisión 14). Línea base 2003–2024 (`settings.yaml` → `climatology.baseline`) por mes y por semana ISO (53 → 52); anomalías con percentil empírico y semáforo de 6 categorías (paleta PuOr, apta para daltonismo); `categoria_incierta` si la banda del valor estimado cambia la categoría (89 % de los meses estimados, pero 12 de los 14 meses extremos siguen ≥ "por encima" con la banda inferior). Áreas de interés = rectángulos `aoi_*` en `settings.yaml`; `aoi_cusco` es **provisional**. La climatología de un área se calcula después de sumar sus celdas, nunca sumando percentiles de celdas.
+     - Limitación vista en Cusco: en meses de lluvia Aqua suele ver 0 focos, y 0 × factor = 0, mientras VIIRS ve 5–60. Las anomalías "por debajo" de ene–abr en 2002–2011 en áreas chicas son en parte artefacto del sensor.
   3. `export_web` (JSON/CSV para el frontend).
   4. Conectar los comandos restantes en `cli.py`.
 - **Factores GLM calculados**: A y B, para conteo y FRP, en calibración (2012–2017) y reajuste final de B (2012–2022). **Faltan**:
